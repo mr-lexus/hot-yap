@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mr-lexus.github.io/hot-yap/sitemap.xml

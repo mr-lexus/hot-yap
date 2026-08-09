@@ -1,0 +1,53 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build desktop frontend
+        run: pnpm build
+      - name: Build landing
+        run: pnpm site:build
+
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config \
+            libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Check Python sources
+        run: python3 -m compileall -q backend

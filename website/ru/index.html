@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Горячий Лай (HotYap): локальная голосовая диктовка RU/EN</title>
+    <meta
+      name="description"
+      content="Горячий Лай — локальная голосовая диктовка для русской речи с английскими техническими терминами. Зажмите клавишу, говорите, отпустите и вставьте текст."
+    />
+    <meta
+      name="keywords"
+      content="голосовая диктовка, распознавание русской речи, речь в текст, локальный Whisper, faster-whisper, русская английская диктовка, HotYap, Горячий Лай"
+    />
+    <meta name="author" content="HotYap" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1"
+    />
+    <meta name="theme-color" content="#d99a4e" />
+    <link rel="canonical" href="https://mr-lexus.github.io/hot-yap/ru/" />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://mr-lexus.github.io/hot-yap/"
+    />
+    <link
+      rel="alternate"
+      hreflang="ru"
+      href="https://mr-lexus.github.io/hot-yap/ru/"
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href="https://mr-lexus.github.io/hot-yap/"
+    />
+    <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="preload" href="../assets/mascot-light.png" as="image" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Горячий Лай / HotYap" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta
+      property="og:title"
+      content="Горячий Лай: говори, отпусти, вставляй"
+    />
+    <meta
+      property="og:description"
+      content="Локальная RU/EN-диктовка, которая оставляет TypeScript словом TypeScript."
+    />
+    <meta property="og:url" content="https://mr-lexus.github.io/hot-yap/ru/" />
+    <meta
+      property="og:image"
+      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Горячий Лай — локальная голосовая диктовка"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Горячий Лай: локальная RU/EN-диктовка"
+    />
+    <meta
+      name="twitter:description"
+      content="Зажмите клавишу, говорите, отпустите и вставьте. Локальный Whisper или внешние провайдеры по выбору."
+    />
+    <meta
+      name="twitter:image"
+      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Горячий Лай",
+        "alternateName": "HotYap",
+        "applicationCategory": "UtilitiesApplication",
+        "applicationSubCategory": "Голосовая диктовка и распознавание речи",
+        "operatingSystem": "Linux, Windows, macOS",
+        "softwareVersion": "0.1.0-alpha.1",
+        "description": "Локальная программа голосовой диктовки для русской речи с английскими техническими терминами.",
+        "url": "https://mr-lexus.github.io/hot-yap/ru/",
+        "downloadUrl": "https://github.com/mr-lexus/hot-yap/releases",
+        "codeRepository": "https://github.com/mr-lexus/hot-yap",
+        "image": "https://mr-lexus.github.io/hot-yap/landing/og-cover.png",
+        "inLanguage": ["ru", "en"],
+        "featureList": [
+          "Локальное распознавание faster-whisper",
+          "Переключение между русским и английским",
+          "Push-to-talk",
+          "Вывод в буфер обмена",
+          "Опциональные облачные провайдеры"
+        ]
+      }
+    </script>
+    <script type="module" src="/src/landing.js"></script>
+    <link rel="stylesheet" href="/src/landing.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <header class="site-header shell">
+      <nav class="nav" aria-label="Основная навигация">
+        <a class="brand" href="./" aria-label="Главная Горячего Лая">
+          <img src="../assets/mascot-light.png" alt="" width="48" height="48" />
+          <span class="brand-copy"
+            ><strong>ГОРЯЧИЙ/ЛАЙ</strong><span>LOCAL ASR // ALPHA</span></span
+          >
+        </a>
+        <div class="nav-links">
+          <a href="#how">Как работает</a><a href="#features">Возможности</a
+          ><a href="#download">Скачать</a>
+        </div>
+        <div class="locale-switch" aria-label="Язык">
+          <a href="../" lang="en">EN</a
+          ><a href="./" lang="ru" aria-current="page">RU</a>
+        </div>
+        <a
+          class="github-link"
+          href="https://github.com/mr-lexus/hot-yap"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.8 5.1 15.8 5.4 15.8 5.4c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.1c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"
+            /></svg
+          ><span>GitHub</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-copy" data-reveal>
+          <div class="alpha-line">
+            <i class="live-dot" aria-hidden="true"></i>
+            <p class="eyebrow">Локальная голосовая диктовка</p>
+            <span class="alpha-chip">0.1 ALPHA</span>
+          </div>
+          <h1>
+            <span class="hero-word">Говори.</span
+            ><span class="hero-word hot">Отпусти.</span
+            ><span class="hero-word outline">Вставляй.</span>
+          </h1>
+          <p class="hero-lead">
+            <strong
+              >Русская речь. Английский технарский. Ноль борьбы с
+              клавиатурой.</strong
+            >
+            Зажмите хоткей, скажите «почини useEffect в TypeScript», отпустите —
+            и нормальный текст уже в буфере.
+          </p>
+          <div class="actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/mr-lexus/hot-yap/releases"
+              >Забрать alpha-сборку <span aria-hidden="true">↘</span></a
+            ><a
+              class="button button-secondary"
+              href="https://github.com/mr-lexus/hot-yap"
+              >Посмотреть исходники <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <div class="platform-line" aria-label="Поддерживаемые платформы">
+            <span>LINUX</span><span>WINDOWS</span><span>macOS</span
+            ><span>RU + EN</span>
+          </div>
+        </div>
+        <div
+          class="beast-stage"
+          data-pointer-stage
+          aria-label="Маскот Горячего Лая и интерфейс записи"
+        >
+          <div class="beast-card" data-tilt>
+            <div class="mad-label">Не очередной вежливый<b>диктатор.</b></div>
+            <img
+              src="../assets/mascot-light.png"
+              alt="Безумный пёс — маскот Горячего Лая"
+              width="956"
+              height="966"
+            />
+          </div>
+          <div class="burst">ЛАЙ<br />В<br />ТЕКСТ!</div>
+          <div class="speech-bubble">«git rebase, а не гит ребейс»</div>
+          <div class="recorder-card">
+            <span class="mic-orb" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <rect x="9" y="3" width="6" height="12" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg></span
+            ><span class="rec-copy"
+              ><small>ИДЁТ ЗАПИСЬ // LIVE</small
+              ><strong>Русский + технический English</strong></span
+            ><span class="wave" aria-hidden="true"
+              ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+              ><i></i><i></i
+            ></span>
+          </div>
+        </div>
+      </section>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>Зажать хоткей</span><span>Говорить как есть</span
+          ><span>Отпустить</span><span>Вставить куда угодно</span
+          ><span>Локальный Whisper</span><span>Без истории</span
+          ><span>Зажать хоткей</span><span>Говорить как есть</span
+          ><span>Отпустить</span><span>Вставить куда угодно</span
+          ><span>Локальный Whisper</span><span>Без истории</span>
+        </div>
+      </div>
+
+      <section class="visual-proof shell" aria-labelledby="visual-proof-title">
+        <div class="proof-heading" data-reveal>
+          <p class="section-kicker">Настоящие пиксели. Настоящая программа.</p>
+          <h2 id="visual-proof-title">Она есть.<br /><em>Она лает.</em></h2>
+          <p>
+            Реальный интерфейс Горячего Лая, а не концептуальный дашборд,
+            собранный специально для лендинга.
+          </p>
+        </div>
+        <div class="proof-collage" data-reveal>
+          <a
+            class="proof-card proof-main"
+            href="../assets/screenshots/hotyap-app.png"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <img
+              src="../assets/screenshots/hotyap-app.png"
+              alt="Полное окно программы Горячий Лай"
+              width="1120"
+              height="768"
+              loading="eager"
+            />
+            <span>ПОЛНОЕ ОКНО // ОТКРЫТЬ ↗</span>
+          </a>
+          <div class="proof-stack">
+            <a
+              class="proof-card proof-detail proof-detail-top"
+              href="../assets/screenshots/hotyap-app.png"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img
+                src="../assets/screenshots/hotyap-app.png"
+                alt="Провайдер распознавания и элементы управления записью"
+                width="1120"
+                height="768"
+                loading="lazy"
+              />
+              <span>УПРАВЛЕНИЕ ЗАПИСЬЮ</span>
+            </a>
+            <a
+              class="proof-card proof-detail proof-detail-bottom"
+              href="../assets/screenshots/hotyap-app.png"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img
+                src="../assets/screenshots/hotyap-app.png"
+                alt="Прогресс распознавания и состояние сессии"
+                width="1120"
+                height="768"
+                loading="lazy"
+              />
+              <span>ЖИВАЯ ТРАНСКРИПЦИЯ</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="how">
+        <div data-reveal>
+          <p class="section-kicker">Четыре движения. Без церемоний.</p>
+          <h2 class="section-title">Голос идёт по <em>короткому пути.</em></h2>
+          <p class="section-intro">
+            Горячий Лай — push-to-talk-диктовка для тех, кто переключается с
+            русского на технический английский посреди предложения.
+          </p>
+        </div>
+        <div class="steps">
+          <article class="step" data-reveal>
+            <span class="step-icon">01</span>
+            <h3>Зажать</h3>
+            <p>Используйте глобальный хоткей или кнопку в окне.</p>
+            <div class="kbd-row">
+              <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd>
+            </div>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">02</span>
+            <h3>Лаять</h3>
+            <p>
+              Говорите по-русски, по-английски или сразу на обоих. Оверлей
+              покажет уровень микрофона.
+            </p>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">03</span>
+            <h3>Отпустить</h3>
+            <p>
+              Локальный faster-whisper или выбранный провайдер превратит аудио в
+              текст.
+            </p>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">04</span>
+            <h3>Вставить</h3>
+            <p>
+              Результат копируется в буфер. Только вы решаете, куда его
+              отправить.
+            </p>
+            <div class="kbd-row"><kbd>Ctrl</kbd><kbd>V</kbd></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell" id="features">
+        <div data-reveal>
+          <p class="section-kicker">
+            Маленькая программа. Неприлично громкий лай.
+          </p>
+          <h2 class="section-title">
+            Для фразы, которую другая диктовка опять <em>изуродовала.</em>
+          </h2>
+        </div>
+        <div class="features">
+          <article class="feature" data-reveal>
+            <span class="feature-label">LOCAL ENGINE</span>
+            <h3>Аудио может остаться на вашем компьютере.</h3>
+            <p>
+              Запускайте faster-whisper с CTranslate2 локально. Модель
+              загружается только по вашему выбору и повторно используется
+              постоянным worker-процессом.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">RU ↔ EN</span>
+            <h3>Переключайте язык без извинений.</h3>
+            <p>
+              Промпт и аккуратные исправления помогают оставить Python, Docker,
+              useEffect и GitHub в латинице.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">PUSH TO TALK</span>
+            <h3>Зажали. Сказали. Отпустили.</h3>
+            <p>
+              Настраиваемый хоткей и компактный оверлей ускоряют диктовку, не
+              захватывая ваш рабочий процесс.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">MODEL CONTROL</span>
+            <h3>От tiny до large-v3. От CPU до CUDA.</h3>
+            <p>
+              Выбирайте CTranslate2-модель, управляйте загрузками и спокойно
+              откатывайтесь на CPU, если CUDA недоступна.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">CLIPBOARD FIRST</span>
+            <h3>Никакой одержимой автопечати.</h3>
+            <p>
+              Горячий Лай не симулирует нажатия. Он копирует UTF-8-текст, а
+              вставляете его вы сами.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">OPTIONAL CLOUD</span>
+            <h3>Локально по умолчанию. API по желанию.</h3>
+            <p>
+              Подключайте речевые API или постобработку только явно. Ключи
+              хранятся в системном хранилище учётных данных.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section
+        class="section shell product-showcase"
+        aria-labelledby="real-app-title"
+      >
+        <div class="product-copy" data-reveal>
+          <p class="section-kicker">Настоящее приложение</p>
+          <h2 class="section-title" id="real-app-title">
+            Тихий UI.<br /><em>Громкий результат.</em>
+          </h2>
+          <div class="sticker-note">ДА, ПЁС КОНТРОЛИРУЕТ.</div>
+          <div class="product-points">
+            <div class="product-point">
+              <b>✓</b><span>Живой уровень звука и прогресс распознавания.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b><span>Русский и английский интерфейс.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b><span>Тёмная и светлая темы с разными акцентами.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b
+              ><span>Менеджер локальных моделей и внешних провайдеров.</span>
+            </div>
+          </div>
+        </div>
+        <a
+          class="screen-wrap"
+          href="../assets/screenshots/hotyap-app.png"
+          target="_blank"
+          rel="noreferrer"
+          data-reveal
+          ><img
+            src="../assets/screenshots/hotyap-app.png"
+            alt="Окно Горячего Лая с прогрессом распознавания речи и выводом в буфер обмена"
+            width="1120"
+            height="768"
+            loading="lazy"
+        /></a>
+      </section>
+
+      <section class="section shell download-section" id="download">
+        <div class="package-layout">
+          <div data-reveal>
+            <p class="section-kicker">Свежее и нестабильное</p>
+            <h2 class="section-title">Выберите свой <em>яд.</em></h2>
+            <p class="section-intro">
+              GitHub Actions собирает нативные установщики и прикладывает их к
+              каждому alpha-релизу по тегу.
+            </p>
+            <div class="alpha-warning">
+              <strong>Alpha означает alpha.</strong> Возможны неподписанные
+              установщики, странности платформ, острые углы и ломающие
+              изменения. Всё безумное несите в GitHub Issues.
+            </div>
+          </div>
+          <div class="packages" data-reveal>
+            <div class="package-row">
+              <span class="package-ext">LINUX</span
+              ><span class="package-name"
+                ><strong>Debian, Fedora, portable</strong
+                ><span>Сборки x86_64</span></span
+              ><span class="package-formats"
+                >.deb<br />.rpm<br />.AppImage</span
+              >
+            </div>
+            <div class="package-row">
+              <span class="package-ext">WIN</span
+              ><span class="package-name"
+                ><strong>Windows 10 / 11</strong
+                ><span>Установщики x86_64</span></span
+              ><span class="package-formats">.msi<br />-setup.exe</span>
+            </div>
+            <div class="package-row">
+              <span class="package-ext">MAC</span
+              ><span class="package-name"
+                ><strong>Intel и Apple Silicon</strong
+                ><span>Отдельные нативные сборки</span></span
+              ><span class="package-formats">x64.dmg<br />arm64.dmg</span>
+            </div>
+            <div class="release-card">
+              <small>ТЕКУЩИЙ КАНАЛ // PRE-RELEASE</small>
+              <h3>0.1.0<br />alpha.1</h3>
+              <p>
+                Модель не упакована внутрь. Выберите и загрузите её при первом
+                запуске, чтобы установщик не весил несколько гигабайт.
+              </p>
+              <a
+                class="button"
+                href="https://github.com/mr-lexus/hot-yap/releases"
+                >Открыть GitHub Releases ↗</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="privacy">
+        <div class="privacy-panel" data-reveal>
+          <div>
+            <p class="section-kicker">Приватно, пока вы не решите иначе</p>
+            <h2 class="section-title">
+              Без памяти.<br /><em>Без сплетен.</em>
+            </h2>
+            <p class="section-intro">
+              Локальный режим оставляет речевой pipeline на устройстве. Внешние
+              провайдеры опциональны и выбираются явно.
+            </p>
+          </div>
+          <div class="privacy-list">
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Нет истории и телеметрии.</strong> Программа не ведёт
+                тайный дневник ваших диктовок.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Временные WAV удаляются</strong> после распознавания, в
+                том числе при ошибках.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Облако только по выбору.</strong> Аудио покидает
+                компьютер, только если выбран внешний STT.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Последнее действие за вами.</strong> Текст попадает в
+                буфер, но не печатается автоматически.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="final-cta shell" data-reveal>
+        <img
+          src="../assets/mascot-light.png"
+          alt=""
+          width="170"
+          height="170"
+          loading="lazy"
+        />
+        <h2>Хватит печатать.<br /><span>Пора лаять.</span></h2>
+        <p>
+          Попробуйте alpha, сломайте что-нибудь интересное и расскажите, как
+          именно оно залаяло.
+        </p>
+        <div class="actions">
+          <a
+            class="button button-primary"
+            href="https://github.com/mr-lexus/hot-yap/releases"
+            >Скачать Горячий Лай</a
+          ><a
+            class="button button-secondary"
+            href="https://github.com/mr-lexus/hot-yap/issues"
+            >Сообщить о проблеме</a
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-row">
+        <span
+          ><strong>Горячий Лай</strong> / HotYap ©
+          <span data-current-year>2026</span></span
+        >
+        <div class="footer-links">
+          <a href="https://github.com/mr-lexus/hot-yap">Исходники</a
+          ><a href="https://github.com/mr-lexus/hot-yap/releases">Релизы</a
+          ><a href="https://github.com/mr-lexus/hot-yap/issues">Ошибки</a
+          ><a href="#main">Наверх ↑</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

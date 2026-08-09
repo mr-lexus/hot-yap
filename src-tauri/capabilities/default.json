@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for HotYap windows",
+  "windows": ["main", "overlay"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-outer-size",
+    "core:window:allow-primary-monitor",
+    "core:window:allow-cursor-position",
+    "core:window:allow-monitor-from-point",
+    "core:window:allow-set-position",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-icon",
+    "core:window:allow-theme",
+    "core:window:allow-set-title",
+    "clipboard-manager:allow-write-text",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
+  ]
+}

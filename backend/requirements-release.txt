@@ -1,0 +1,4 @@
+# Exact top-level inputs used to produce the per-platform worker sidecar.
+faster-whisper==1.2.1
+huggingface_hub==1.27.0
+pyinstaller==6.16.0

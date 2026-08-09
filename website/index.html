@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HotYap: Local Russian &amp; English Voice Dictation</title>
+    <meta
+      name="description"
+      content="HotYap is a local-first desktop voice dictation app for Russian speech with English technical terms. Hold a shortcut, talk, release, and paste."
+    />
+    <meta
+      name="keywords"
+      content="voice dictation, speech to text, Russian speech recognition, local Whisper, faster-whisper, RU EN dictation, Linux dictation, Windows dictation, macOS dictation, HotYap"
+    />
+    <meta name="author" content="HotYap" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1"
+    />
+    <meta name="theme-color" content="#d99a4e" />
+    <link rel="canonical" href="https://mr-lexus.github.io/hot-yap/" />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://mr-lexus.github.io/hot-yap/"
+    />
+    <link
+      rel="alternate"
+      hreflang="ru"
+      href="https://mr-lexus.github.io/hot-yap/ru/"
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href="https://mr-lexus.github.io/hot-yap/"
+    />
+    <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="preload" href="./assets/mascot-light.png" as="image" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="HotYap" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta property="og:title" content="HotYap: Talk. Drop. Paste." />
+    <meta
+      property="og:description"
+      content="Local-first RU/EN voice dictation that keeps TypeScript as TypeScript."
+    />
+    <meta property="og:url" content="https://mr-lexus.github.io/hot-yap/" />
+    <meta
+      property="og:image"
+      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="HotYap local voice dictation: Talk, Drop, Paste"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="HotYap: Local RU/EN Voice Dictation" />
+    <meta
+      name="twitter:description"
+      content="Hold a shortcut, talk, release, paste. Local Whisper or optional cloud providers."
+    />
+    <meta
+      name="twitter:image"
+      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "HotYap",
+        "alternateName": "Горячий Лай",
+        "applicationCategory": "UtilitiesApplication",
+        "applicationSubCategory": "Voice dictation and speech recognition",
+        "operatingSystem": "Linux, Windows, macOS",
+        "softwareVersion": "0.1.0-alpha.1",
+        "description": "A local-first desktop voice dictation app for Russian speech with embedded English technical terms.",
+        "url": "https://mr-lexus.github.io/hot-yap/",
+        "downloadUrl": "https://github.com/mr-lexus/hot-yap/releases",
+        "codeRepository": "https://github.com/mr-lexus/hot-yap",
+        "image": "https://mr-lexus.github.io/hot-yap/landing/og-cover.png",
+        "inLanguage": ["en", "ru"],
+        "featureList": [
+          "Local faster-whisper transcription",
+          "Russian and English code switching",
+          "Push-to-talk shortcut",
+          "Clipboard output",
+          "Optional cloud providers"
+        ]
+      }
+    </script>
+    <script type="module" src="/src/landing.js"></script>
+    <link rel="stylesheet" href="/src/landing.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header shell">
+      <nav class="nav" aria-label="Main navigation">
+        <a class="brand" href="./" aria-label="HotYap home">
+          <img src="./assets/mascot-light.png" alt="" width="48" height="48" />
+          <span class="brand-copy"
+            ><strong>HOT/YAP</strong><span>LOCAL ASR // ALPHA</span></span
+          >
+        </a>
+        <div class="nav-links">
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#download">Download</a>
+        </div>
+        <div class="locale-switch" aria-label="Language">
+          <a href="./" lang="en" aria-current="page">EN</a>
+          <a href="./ru/" lang="ru">RU</a>
+        </div>
+        <a
+          class="github-link"
+          href="https://github.com/mr-lexus/hot-yap"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.8 5.1 15.8 5.4 15.8 5.4c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.1c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"
+            />
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-copy" data-reveal>
+          <div class="alpha-line">
+            <i class="live-dot" aria-hidden="true"></i>
+            <p class="eyebrow">Local-first voice dictation</p>
+            <span class="alpha-chip">0.1 ALPHA</span>
+          </div>
+          <h1>
+            <span class="hero-word">Talk.</span
+            ><span class="hero-word hot">Drop.</span
+            ><span class="hero-word outline">Paste.</span>
+          </h1>
+          <p class="hero-lead">
+            <strong
+              >Russian speech. English tech. Zero keyboard wrestling.</strong
+            >
+            Hold a shortcut, say “fix useEffect in TypeScript,” release, and the
+            clean transcript lands in your clipboard.
+          </p>
+          <div class="actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/mr-lexus/hot-yap/releases"
+              >Get the alpha builds <span aria-hidden="true">↘</span></a
+            >
+            <a
+              class="button button-secondary"
+              href="https://github.com/mr-lexus/hot-yap"
+              >Inspect the source <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <div class="platform-line" aria-label="Supported platforms">
+            <span>LINUX</span><span>WINDOWS</span><span>macOS</span
+            ><span>RU + EN</span>
+          </div>
+        </div>
+
+        <div
+          class="beast-stage"
+          data-pointer-stage
+          aria-label="HotYap mascot and recording interface illustration"
+        >
+          <div class="beast-card" data-tilt>
+            <div class="mad-label">Not another polite<b>dictator.</b></div>
+            <img
+              src="./assets/mascot-light.png"
+              alt="The wild HotYap dog mascot"
+              width="956"
+              height="966"
+            />
+          </div>
+          <div class="burst">YAP<br />TO<br />TEXT!</div>
+          <div class="speech-bubble">“git rebase, not гит ребейс.”</div>
+          <div class="recorder-card">
+            <span class="mic-orb" aria-hidden="true"
+              ><svg viewBox="0 0 24 24">
+                <rect x="9" y="3" width="6" height="12" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg
+            ></span>
+            <span class="rec-copy"
+              ><small>RECORDING // LIVE</small
+              ><strong>Russian + technical English</strong></span
+            >
+            <span class="wave" aria-hidden="true"
+              ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+              ><i></i><i></i
+            ></span>
+          </div>
+        </div>
+      </section>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>Hold shortcut</span><span>Speak naturally</span
+          ><span>Release</span><span>Paste anywhere</span
+          ><span>Local Whisper</span><span>No history</span>
+          <span>Hold shortcut</span><span>Speak naturally</span
+          ><span>Release</span><span>Paste anywhere</span
+          ><span>Local Whisper</span><span>No history</span>
+        </div>
+      </div>
+
+      <section class="visual-proof shell" aria-labelledby="visual-proof-title">
+        <div class="proof-heading" data-reveal>
+          <p class="section-kicker">Actual pixels. Actual app.</p>
+          <h2 id="visual-proof-title">It exists.<br /><em>It yaps.</em></h2>
+          <p>
+            The real HotYap interface, not a conceptual dashboard assembled for
+            the landing page.
+          </p>
+        </div>
+        <div class="proof-collage" data-reveal>
+          <a
+            class="proof-card proof-main"
+            href="./assets/screenshots/hotyap-app.png"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <img
+              src="./assets/screenshots/hotyap-app.png"
+              alt="Full HotYap desktop application window"
+              width="1120"
+              height="768"
+              loading="eager"
+            />
+            <span>FULL DESKTOP APP // OPEN IMAGE ↗</span>
+          </a>
+          <div class="proof-stack">
+            <a
+              class="proof-card proof-detail proof-detail-top"
+              href="./assets/screenshots/hotyap-app.png"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img
+                src="./assets/screenshots/hotyap-app.png"
+                alt="HotYap speech recognition provider and recording controls"
+                width="1120"
+                height="768"
+                loading="lazy"
+              />
+              <span>RECORDING CONTROL</span>
+            </a>
+            <a
+              class="proof-card proof-detail proof-detail-bottom"
+              href="./assets/screenshots/hotyap-app.png"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img
+                src="./assets/screenshots/hotyap-app.png"
+                alt="HotYap transcription progress and session status"
+                width="1120"
+                height="768"
+                loading="lazy"
+              />
+              <span>LIVE TRANSCRIPTION</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="how">
+        <div data-reveal>
+          <p class="section-kicker">Four moves. No ceremony.</p>
+          <h2 class="section-title">Your voice takes the <em>shortcut.</em></h2>
+          <p class="section-intro">
+            HotYap is push-to-talk dictation built for people who switch between
+            Russian and technical English mid-sentence.
+          </p>
+        </div>
+        <div class="steps">
+          <article class="step" data-reveal>
+            <span class="step-icon">01</span>
+            <h3>Hold</h3>
+            <p>Use the global shortcut or press the on-screen control.</p>
+            <div class="kbd-row">
+              <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd>
+            </div>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">02</span>
+            <h3>Yap</h3>
+            <p>
+              Speak Russian, English, or both. A live overlay shows mic
+              activity.
+            </p>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">03</span>
+            <h3>Release</h3>
+            <p>
+              Local faster-whisper or your chosen provider turns audio into
+              text.
+            </p>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step-icon">04</span>
+            <h3>Paste</h3>
+            <p>
+              The result is copied to the clipboard. You decide where it goes.
+            </p>
+            <div class="kbd-row"><kbd>Ctrl</kbd><kbd>V</kbd></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell" id="features">
+        <div data-reveal>
+          <p class="section-kicker">Small app. Unreasonable bark.</p>
+          <h2 class="section-title">
+            Built for the sentence your other dictation app <em>mangled.</em>
+          </h2>
+        </div>
+        <div class="features">
+          <article class="feature" data-reveal>
+            <span class="feature-label">LOCAL ENGINE</span>
+            <h3>Your audio can stay on your machine.</h3>
+            <p>
+              Run faster-whisper with CTranslate2 locally. Models are downloaded
+              only when you choose one and reused by a persistent worker.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">RU ↔ EN</span>
+            <h3>Code switch without apology.</h3>
+            <p>
+              Prompt conditioning and careful term fixes help keep Python,
+              Docker, useEffect, and GitHub in Latin script.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">PUSH TO TALK</span>
+            <h3>Hold. Speak. Let go.</h3>
+            <p>
+              A configurable global shortcut and always-on-top overlay make
+              dictation fast without taking over your workflow.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">MODEL CONTROL</span>
+            <h3>Tiny to large-v3. CPU to CUDA.</h3>
+            <p>
+              Pick a compatible CTranslate2 model, manage downloads in the app,
+              and fall back to CPU if CUDA is unavailable.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">CLIPBOARD FIRST</span>
+            <h3>No haunted auto-typing.</h3>
+            <p>
+              HotYap never simulates keystrokes. It copies UTF-8 text; you paste
+              only when and where you mean to.
+            </p>
+          </article>
+          <article class="feature" data-reveal>
+            <span class="feature-label">OPTIONAL CLOUD</span>
+            <h3>Local by default. APIs by choice.</h3>
+            <p>
+              Use supported speech providers or text post-processing only when
+              you explicitly configure them. Keys stay in the OS credential
+              store.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section
+        class="section shell product-showcase"
+        aria-labelledby="real-app-title"
+      >
+        <div class="product-copy" data-reveal>
+          <p class="section-kicker">Actual application</p>
+          <h2 class="section-title" id="real-app-title">
+            Quiet UI.<br /><em>Loud result.</em>
+          </h2>
+          <div class="sticker-note">YES, THE DOG IS SUPERVISING.</div>
+          <div class="product-points">
+            <div class="product-point">
+              <b>✓</b><span>Live audio level and transcription progress.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b><span>English and Russian interface languages.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b
+              ><span>Dark/light themes and selectable accent colors.</span>
+            </div>
+            <div class="product-point">
+              <b>✓</b
+              ><span>Local model manager plus optional provider setup.</span>
+            </div>
+          </div>
+        </div>
+        <a
+          class="screen-wrap"
+          href="./assets/screenshots/hotyap-app.png"
+          target="_blank"
+          rel="noreferrer"
+          data-reveal
+        >
+          <img
+            src="./assets/screenshots/hotyap-app.png"
+            alt="HotYap desktop interface showing voice transcription progress and clipboard output"
+            width="1120"
+            height="768"
+            loading="lazy"
+          />
+        </a>
+      </section>
+
+      <section class="section shell download-section" id="download">
+        <div class="package-layout">
+          <div data-reveal>
+            <p class="section-kicker">Freshly unstable</p>
+            <h2 class="section-title">Choose your <em>poison.</em></h2>
+            <p class="section-intro">
+              GitHub Actions produces native installers and attaches them
+              directly to every tagged alpha release.
+            </p>
+            <div class="alpha-warning">
+              <strong>Alpha means alpha.</strong> Expect unsigned installers,
+              platform quirks, rough edges, and breaking changes. Report the
+              weird stuff on GitHub.
+            </div>
+          </div>
+          <div class="packages" data-reveal>
+            <div class="package-row">
+              <span class="package-ext">LINUX</span
+              ><span class="package-name"
+                ><strong>Debian, Fedora, portable</strong
+                ><span>x86_64 release builds</span></span
+              ><span class="package-formats"
+                >.deb<br />.rpm<br />.AppImage</span
+              >
+            </div>
+            <div class="package-row">
+              <span class="package-ext">WIN</span
+              ><span class="package-name"
+                ><strong>Windows 10 / 11</strong
+                ><span>x86_64 installers</span></span
+              ><span class="package-formats">.msi<br />-setup.exe</span>
+            </div>
+            <div class="package-row">
+              <span class="package-ext">MAC</span
+              ><span class="package-name"
+                ><strong>Intel and Apple Silicon</strong
+                ><span>separate native builds</span></span
+              ><span class="package-formats">x64.dmg<br />arm64.dmg</span>
+            </div>
+            <div class="release-card">
+              <small>CURRENT CHANNEL // PRE-RELEASE</small>
+              <h3>0.1.0<br />alpha.1</h3>
+              <p>
+                The model is not packed into the installer. Pick and download
+                one on first launch so the app stays reasonably sized.
+              </p>
+              <a
+                class="button"
+                href="https://github.com/mr-lexus/hot-yap/releases"
+                >Open GitHub Releases ↗</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="privacy">
+        <div class="privacy-panel" data-reveal>
+          <div>
+            <p class="section-kicker">Private unless you say otherwise</p>
+            <h2 class="section-title">No memory.<br /><em>No gossip.</em></h2>
+            <p class="section-intro">
+              Local mode is designed to keep the speech pipeline on your device.
+              External providers are optional and clearly selected.
+            </p>
+          </div>
+          <div class="privacy-list">
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>No transcript history or telemetry.</strong> HotYap does
+                not build a secret diary of your dictation.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Temporary WAV files are deleted</strong> after
+                transcription, including error paths.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>Cloud is opt-in.</strong> Audio leaves the machine only
+                when an external STT provider is selected.
+              </p>
+            </div>
+            <div class="privacy-item">
+              <i></i>
+              <p>
+                <strong>You own the final action.</strong> Output reaches the
+                clipboard, never automatic keystrokes.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="final-cta shell" data-reveal>
+        <img
+          src="./assets/mascot-light.png"
+          alt=""
+          width="170"
+          height="170"
+          loading="lazy"
+        />
+        <h2>Stop typing.<br /><span>Start yapping.</span></h2>
+        <p>
+          Try the alpha, break something interesting, and tell us exactly how it
+          barked.
+        </p>
+        <div class="actions">
+          <a
+            class="button button-primary"
+            href="https://github.com/mr-lexus/hot-yap/releases"
+            >Download HotYap</a
+          ><a
+            class="button button-secondary"
+            href="https://github.com/mr-lexus/hot-yap/issues"
+            >Report an issue</a
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-row">
+        <span
+          ><strong>HotYap</strong> / Горячий Лай ©
+          <span data-current-year>2026</span></span
+        >
+        <div class="footer-links">
+          <a href="https://github.com/mr-lexus/hot-yap">Source</a
+          ><a href="https://github.com/mr-lexus/hot-yap/releases">Releases</a
+          ><a href="https://github.com/mr-lexus/hot-yap/issues">Issues</a
+          ><a href="#main">Back to top ↑</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

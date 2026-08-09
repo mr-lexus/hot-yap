@@ -1,0 +1,185 @@
+name: Build alpha release
+
+on:
+  push:
+    tags:
+      - "v*-alpha.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Alpha tag to create, for example v0.1.0-alpha.1"
+        required: true
+        default: "v0.1.0-alpha.1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+            label: Linux x86_64
+          - platform: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+            label: Windows x86_64
+          - platform: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: dmg
+            label: macOS Intel
+          - platform: macos-14
+            target: aarch64-apple-darwin
+            bundles: dmg
+            label: macOS Apple Silicon
+
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+          cache: pnpm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-release.txt
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config \
+            libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install worker build dependencies
+        run: python -m pip install --requirement backend/requirements-release.txt
+
+      - name: Build bundled worker (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python -m PyInstaller \
+            --noconfirm --clean --onefile \
+            --name hotyap-worker \
+            --paths backend \
+            --hidden-import inference \
+            --hidden-import model_download \
+            --collect-all faster_whisper \
+            --collect-all ctranslate2 \
+            --collect-all av \
+            --collect-all tokenizers \
+            --collect-all huggingface_hub \
+            --distpath build/worker \
+            --workpath build/pyinstaller \
+            --specpath build \
+            backend/worker.py
+          mkdir -p src-tauri/binaries
+          mv build/worker/hotyap-worker "src-tauri/binaries/hotyap-worker-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/hotyap-worker-${{ matrix.target }}"
+
+      - name: Build bundled worker (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm --clean --onefile `
+            --name hotyap-worker `
+            --paths backend `
+            --hidden-import inference `
+            --hidden-import model_download `
+            --collect-all faster_whisper `
+            --collect-all ctranslate2 `
+            --collect-all av `
+            --collect-all tokenizers `
+            --collect-all huggingface_hub `
+            --distpath build/worker `
+            --workpath build/pyinstaller `
+            --specpath build `
+            backend/worker.py
+          New-Item -ItemType Directory -Force src-tauri/binaries | Out-Null
+          Move-Item build/worker/hotyap-worker.exe "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe"
+
+      - name: Smoke-test bundled worker (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p build/worker-smoke
+          printf '%s\n' \
+            '{"id":1,"command":"status","model_dir":"build/worker-smoke","catalog":[]}' \
+            '{"id":2,"command":"shutdown"}' \
+            | "src-tauri/binaries/hotyap-worker-${{ matrix.target }}"
+
+      - name: Smoke-test bundled worker (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/worker-smoke | Out-Null
+          '{"id":1,"command":"status","model_dir":"build/worker-smoke","catalog":[]}', '{"id":2,"command":"shutdown"}' |
+            & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe"
+
+      - name: Remove worker build intermediates (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: rm -rf build/pyinstaller build/worker
+
+      - name: Remove worker build intermediates (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Remove-Item -Recurse -Force build/pyinstaller, build/worker
+
+      - name: Build installers and publish prerelease
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
+          releaseBody: |
+            First public alpha of HotYap / Горячий Лай.
+
+            Packages include the local transcription worker. Speech models are downloaded separately on first use. These builds are currently unsigned; operating-system warnings are expected.
+
+            Linux: DEB, RPM, AppImage. Windows: MSI, NSIS. macOS: DMG for Intel and Apple Silicon.
+          releaseDraft: false
+          prerelease: true
+          args: --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

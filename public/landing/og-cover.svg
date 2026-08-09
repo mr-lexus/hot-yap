@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#f3f2ed" stroke-opacity=".06"/></pattern>
+    <filter id="shadow"><feDropShadow dx="18" dy="18" stdDeviation="0" flood-color="#303632"/></filter>
+  </defs>
+  <rect width="1200" height="630" fill="#0c0f0e"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="1110" cy="-20" r="250" fill="#b69aff" opacity=".1"/>
+  <circle cx="60" cy="610" r="260" fill="#d99a4e" opacity=".12"/>
+  <g transform="translate(62 62)">
+    <rect width="82" height="32" rx="16" fill="#ff6685"/>
+    <text x="41" y="21" text-anchor="middle" font-family="monospace" font-weight="900" font-size="13" fill="#0c0f0e">ALPHA</text>
+    <text y="125" font-family="Arial Black, sans-serif" font-weight="900" font-size="92" letter-spacing="-7" fill="#f3f2ed">TALK.</text>
+    <text y="206" x="42" font-family="Arial Black, sans-serif" font-weight="900" font-size="92" letter-spacing="-7" fill="#ffb14a">DROP.</text>
+    <text y="287" font-family="Arial Black, sans-serif" font-weight="900" font-size="92" letter-spacing="-7" fill="none" stroke="#c8ff5a" stroke-width="2">PASTE.</text>
+    <text y="354" font-family="system-ui, sans-serif" font-weight="700" font-size="25" fill="#d7d6cf">Local-first RU/EN voice dictation.</text>
+    <text y="394" font-family="system-ui, sans-serif" font-size="19" fill="#a6aaa5">Speak Russian. Keep TypeScript as TypeScript.</text>
+    <g transform="translate(0 440)">
+      <rect width="112" height="42" rx="10" fill="#f3f2ed"/><text x="56" y="27" text-anchor="middle" font-family="monospace" font-weight="900" font-size="13" fill="#0c0f0e">HOTYAP</text>
+      <text x="133" y="27" font-family="monospace" font-weight="900" font-size="13" fill="#d99a4e">LOCAL ASR // NO HISTORY</text>
+    </g>
+  </g>
+  <g transform="translate(755 55) rotate(-4 190 250)" filter="url(#shadow)">
+    <rect width="380" height="500" rx="42 16 52 22" fill="#ffb14a" stroke="#f3f2ed" stroke-width="3"/>
+    <rect x="18" y="18" width="344" height="464" rx="30" fill="none" stroke="#0c0f0e" stroke-opacity=".45" stroke-width="2" stroke-dasharray="8 8"/>
+    <image href="../light.png" x="40" y="85" width="310" height="330" preserveAspectRatio="xMidYMid meet"/>
+    <text x="28" y="55" font-family="monospace" font-weight="900" font-size="17" fill="#0c0f0e">LOUD LOCAL SPEECH</text>
+  </g>
+  <path d="M1130 440h70v190h-180Z" fill="#c8ff5a" opacity=".9"/>
+</svg>

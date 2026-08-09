@@ -1,0 +1,216 @@
+{
+  "brand": {
+    "name": "HotYap",
+    "kicker": "HOTYAP / LOCAL ASR",
+    "tagline": "Private speech-to-text for Russian and technical English",
+    "windowTitle": "HotYap — Local RU/EN Dictation"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "switchTo": "Switch to {{theme}} theme",
+    "switchToLight": "Switch to light theme",
+    "switchToDark": "Switch to dark theme",
+    "language": "Interface language"
+  },
+  "provider": {
+    "active": "Speech recognition",
+    "title": "API provider",
+    "setupRequired": "Setup required",
+    "notConfigured": "Not configured",
+    "configure": "Configure"
+  },
+  "engineStatus": {
+    "stopped": "Stopped",
+    "loading": "Loading",
+    "ready": "Ready",
+    "error": "Error"
+  },
+  "model": {
+    "active": "Active model",
+    "none": "No model selected",
+    "ready": "Ready",
+    "downloading": "Downloading {{progress}}%",
+    "downloadingUnknown": "Downloading",
+    "downloaded": "Downloaded",
+    "selectDownloaded": "Select a downloaded model",
+    "noneDownloaded": "No model downloaded",
+    "manage": "Manage models"
+  },
+  "dictation": {
+    "title": "Dictation",
+    "recording": "Recording",
+    "transcribing": "Transcribing",
+    "ready": "Ready",
+    "preparing": "Preparing",
+    "modelRequired": "Model required",
+    "providerRequired": "Configure API",
+    "hold": "Hold to talk",
+    "release": "Release to transcribe",
+    "shortcut": "Shortcut",
+    "edit": "Edit",
+    "pressKey": "Press a key…",
+    "hotkeyMissing": "Hotkey not registered"
+  },
+  "engine": {
+    "title": "Engine",
+    "workerOnline": "Worker online · model idle",
+    "workerOffline": "Worker offline",
+    "load": "Load model",
+    "loading": "Loading…",
+    "unload": "Unload",
+    "restart": "Restart"
+  },
+  "session": {
+    "title": "Session",
+    "localOnly": "Local only",
+    "cloud": "Cloud",
+    "microphone": "Microphone",
+    "modelState": "Model state",
+    "dataHandling": "Data handling",
+    "staysLocal": "Audio stays on device",
+    "sentTo": "Audio is sent to {{provider}}",
+    "defaultInput": "Default input"
+  },
+  "transcript": {
+    "title": "Last transcription",
+    "clipboardOutput": "Clipboard output",
+    "empty": "Your latest transcription will appear here.",
+    "copied": "Copied to clipboard",
+    "copyFailed": "Clipboard write failed"
+  },
+  "progress": {
+    "transcribing": "Transcribing",
+    "elapsed": "{{time}} elapsed"
+  },
+  "privacy": "No cloud · No history · No telemetry",
+  "privacyCloud": "Cloud transcription via {{provider}} · No local history · No telemetry",
+  "spectrum": {
+    "quiet": "Quiet",
+    "voice": "Voice",
+    "loud": "Loud"
+  },
+  "models": {
+    "title": "Choose your transcription model",
+    "subtitle": "Local Whisper builds. Downloaded models stay in this device's app data.",
+    "library": "Model library",
+    "readyCount": "{{downloaded}} of {{total}} ready",
+    "active": "Active: {{name}}",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "scan": "Scan Hugging Face",
+    "scanning": "Scanning HF…",
+    "search": "Search",
+    "searchPlaceholder": "Name, family or repository",
+    "family": "Family",
+    "allFamilies": "All families",
+    "size": "Size",
+    "allSizes": "All sizes",
+    "light": "Light",
+    "medium": "Medium",
+    "heavy": "Heavy",
+    "sort": "Sort",
+    "recommended": "Recommended",
+    "name": "Name",
+    "smallFirst": "Size: small first",
+    "largeFirst": "Size: large first",
+    "popular": "Most downloaded",
+    "all": "All",
+    "downloaded": "Downloaded",
+    "available": "Available",
+    "shown": "{{count}} shown",
+    "catalogChecked": "{{count}} compatible profiles checked",
+    "selected": "Selected",
+    "loaded": "Loaded",
+    "loading": "Loading…",
+    "notDownloaded": "Not downloaded",
+    "download": "Download",
+    "load": "Load",
+    "unload": "Unload",
+    "delete": "Delete",
+    "inUse": "In use",
+    "noMatches": "No models match these filters.",
+    "deleteConfirm": "Delete model ‘{{name}}’? This will free disk space.",
+    "downloadFailed": "Download failed",
+    "help": {
+      "title": "How the catalog works",
+      "families": "Russian First is tuned for Russian speech. Code Switch is tuned for Russian mixed with English technical terms. RuEn is the general Russian/English multilingual Whisper family.",
+      "weights": "Light, Medium and Heavy describe disk size and CPU cost. Int8 / Float16 is the fastest practical GPU format; Int16 uses more memory for higher precision. Nothing downloads until you press Download.",
+      "updates": "Scan Hugging Face accepts only compatible CTranslate2 repositories with a usable model.bin and never replaces the current model automatically."
+    }
+  },
+  "settings": {
+    "button": "Settings",
+    "title": "Settings",
+    "subtitle": "Appearance, speech recognition, and text processing",
+    "close": "Close settings",
+    "appearance": "Appearance",
+    "appearanceHint": "The accent immediately applies to the interface and recording indicator.",
+    "accent": "Accent color",
+    "accents": {
+      "amber": "Amber",
+      "blue": "Blue",
+      "violet": "Violet",
+      "green": "Green",
+      "rose": "Rose",
+      "cyan": "Cyan"
+    },
+    "appIcon": "App and taskbar icon",
+    "appIconHint": "Independent from the interface theme and applied immediately.",
+    "iconModes": {
+      "system": {
+        "title": "System",
+        "hint": "Follow the operating system"
+      },
+      "dark-panel": {
+        "title": "Dark panel",
+        "hint": "Use the light logo"
+      },
+      "light-panel": {
+        "title": "Light panel",
+        "hint": "Use the dark logo"
+      }
+    },
+    "transcription": "Speech recognition",
+    "transcriptionHint": "Local Whisper or a cloud speech-to-text API.",
+    "processing": "Text processing",
+    "processingHint": "Optional punctuation and terminology correction after transcription.",
+    "provider": "Provider",
+    "localProvider": "Local Whisper",
+    "noProvider": "None",
+    "model": "Model",
+    "apiKey": "API key",
+    "endpoint": "API endpoint",
+    "optional": "optional",
+    "keySaved": "Key saved in the system credential store",
+    "keyOptional": "A local server usually does not need a key",
+    "keyMissing": "Add an API key to connect",
+    "keyUnchanged": "Leave blank to keep the saved key",
+    "keyPlaceholder": "Enter API key",
+    "deleteKey": "Delete key",
+    "deleteKeyConfirm": "Delete the saved {{provider}} key?",
+    "instruction": "Processing instruction",
+    "localHint": "Audio is processed locally by the current Whisper model.",
+    "credentialNote": "API keys go directly to the Rust process and are saved in the operating-system credential store. Saved values are never returned to the WebView.",
+    "loading": "Loading settings…",
+    "saved": "Settings saved",
+    "cancel": "Close",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "overlay": {
+    "recording": "Recording",
+    "recordingHint": "Release the shortcut to transcribe",
+    "processing": "Processing speech",
+    "processingHint": "Local transcription · {{progress}}%",
+    "processingUnknown": "Local transcription in progress",
+    "processingCloudHint": "Cloud transcription · {{progress}}%",
+    "processingCloudUnknown": "Cloud transcription in progress",
+    "copied": "Copied to clipboard",
+    "copiedHint": "Ready to paste",
+    "copyError": "Speech transcribed",
+    "copyErrorHint": "Could not write it to the clipboard",
+    "error": "Could not transcribe",
+    "errorHint": "Open HotYap for details"
+  }
+}
