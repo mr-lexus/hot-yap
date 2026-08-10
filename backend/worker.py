@@ -364,6 +364,38 @@ def _emit_cuda_progress(req_id, fraction):
     )
 
 
+@handle("verify_vad")
+def cmd_verify_vad(req):
+    """Check that the Silero VAD (onnxruntime) stack works in this bundle.
+
+    Transcription always runs with vad_filter=True, so a frozen worker whose
+    onnxruntime DLLs fail to initialize under PyInstaller onefile on Windows
+    would transcribe nothing. This command loads the VAD model to catch that
+    on CI.
+    """
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps, get_vad_model
+
+        import numpy as np
+        import onnxruntime
+
+        model = get_vad_model()
+        audio = np.zeros(16000, dtype="float32")
+        chunks = get_speech_timestamps(audio, VadOptions())
+        return {
+            "event": "vad_verified",
+            "onnxruntime_version": onnxruntime.__version__,
+            "session_ok": True,
+            "chunks": len(chunks),
+        }
+    except Exception as e:
+        log(f"VAD verification failed:\n{traceback.format_exc()}")
+        return {
+            "ok": False,
+            "error": f"VAD verification failed: {type(e).__name__}: {e}",
+        }
+
+
 @handle("verify_cuda_runtime")
 def cmd_verify_cuda_runtime(req):
     """Check CUDA availability and that the cuBLAS runtime DLLs can be loaded.

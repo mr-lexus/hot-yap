@@ -109,6 +109,7 @@ jobs:
             --collect-all av \
             --collect-all tokenizers \
             --collect-all huggingface_hub \
+            --collect-all onnxruntime \
             --distpath build/worker \
             --workpath build/pyinstaller \
             --specpath build \
@@ -132,6 +133,7 @@ jobs:
             --collect-all av `
             --collect-all tokenizers `
             --collect-all huggingface_hub `
+            --collect-all onnxruntime `
             --distpath build/worker `
             --workpath build/pyinstaller `
             --specpath build `
@@ -154,7 +156,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/worker-smoke | Out-Null
-          $output = '{"id":1,"command":"download_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":2,"command":"verify_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":3,"command":"shutdown"}' |
+          $output = '{"id":1,"command":"download_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":2,"command":"verify_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":3,"command":"verify_vad"}', '{"id":4,"command":"shutdown"}' |
             & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" 2>&1
           function Get-Reply([int]$id) {
             $output | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } |
@@ -171,6 +173,12 @@ jobs:
             exit 1
           }
           Write-Host "CUDA runtime verified: $($resp.dlls | ConvertTo-Json -Compress)"
+          $vad = Get-Reply 3
+          if (-not $vad.ok -or -not $vad.session_ok) {
+            Write-Error "VAD/onnxruntime verification failed: error=$($vad.error)"
+            exit 1
+          }
+          Write-Host "VAD/onnxruntime verified: onnxruntime=$($vad.onnxruntime_version)"
 
       - name: Remove worker build intermediates (Unix)
         if: runner.os != 'Windows'

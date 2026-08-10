@@ -2,3 +2,9 @@
 faster-whisper==1.2.1
 huggingface_hub==1.27.0
 pyinstaller==6.16.0
+# faster-whisper needs onnxruntime for the Silero VAD filter (used by default
+# in inference.transcribe). onnxruntime>=1.19 ships onnxruntime.dll inside
+# capi/, which fails to initialize under PyInstaller onefile on Windows and
+# makes local transcription hang without any CPU/GPU work. 1.18.1 is the last
+# version known to bundle cleanly (same fix as buzz#1215 / onnxruntime#25193).
+onnxruntime==1.18.1
