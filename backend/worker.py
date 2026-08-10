@@ -38,6 +38,7 @@ import sys
 import threading
 import time
 import traceback
+from pathlib import Path
 
 VERSION = "0.1.0"
 
