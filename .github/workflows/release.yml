@@ -121,11 +121,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python -m pip install nvidia-cublas-cu12==12.4.5.8 --no-deps
-          $cublasDir = Join-Path (python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") "nvidia\cublas\bin"
-          if (-not (Test-Path (Join-Path $cublasDir "cublas64_12.dll"))) {
-            throw "cublas64_12.dll not found in $cublasDir"
-          }
           python -m PyInstaller `
             --noconfirm --clean --onefile `
             --name hotyap-worker `
@@ -137,8 +132,6 @@ jobs:
             --collect-all av `
             --collect-all tokenizers `
             --collect-all huggingface_hub `
-            --add-binary "$cublasDir\cublas64_12.dll;." `
-            --add-binary "$cublasDir\cublasLt64_12.dll;." `
             --distpath build/worker `
             --workpath build/pyinstaller `
             --specpath build `
@@ -161,9 +154,18 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/worker-smoke | Out-Null
-          $output = '{"id":1,"command":"verify_cuda_runtime"}', '{"id":2,"command":"shutdown"}' |
+          $output = '{"id":1,"command":"download_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":2,"command":"verify_cuda_runtime","models_root":"build/worker-smoke"}', '{"id":3,"command":"shutdown"}' |
             & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" 2>&1
-          $resp = $output | Where-Object { $_ -match '"id":\s*1' } | Select-Object -Last 1 | ConvertFrom-Json
+          function Get-Reply([int]$id) {
+            $output | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } |
+              Where-Object { $_.id -eq $id } | Select-Object -Last 1
+          }
+          $dl = Get-Reply 1
+          if (-not $dl.ok) {
+            Write-Error "CUDA runtime download failed: $($dl.error)"
+            exit 1
+          }
+          $resp = Get-Reply 2
           if (-not $resp.ok -or -not $resp.runtime_ok) {
             Write-Error "CUDA runtime verification failed: dlls=$($resp.dlls | ConvertTo-Json -Compress) error=$($resp.error)"
             exit 1
