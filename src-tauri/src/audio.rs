@@ -41,8 +41,8 @@ impl Recorder {
             .map_err(|e| format!("Cannot read microphone input config: {e}"))?;
 
         let channels = config.channels();
-        let sample_rate = config.sample_rate().0;
-        let mic_name = device.name().unwrap_or_default();
+        let sample_rate = config.sample_rate();
+        let mic_name = device.to_string();
         log::info!(
             "microphone '{mic_name}' selected: {sample_rate} Hz, {channels} channel(s), {:?}",
             config.sample_format()
@@ -55,13 +55,13 @@ impl Recorder {
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => {
-                build_stream::<f32>(&device, &config.config(), &data, &error, &level)?
+                build_stream::<f32>(&device, config.config(), &data, &error, &level)?
             }
             cpal::SampleFormat::I16 => {
-                build_stream::<i16>(&device, &config.config(), &data, &error, &level)?
+                build_stream::<i16>(&device, config.config(), &data, &error, &level)?
             }
             cpal::SampleFormat::U16 => {
-                build_stream::<u16>(&device, &config.config(), &data, &error, &level)?
+                build_stream::<u16>(&device, config.config(), &data, &error, &level)?
             }
             other => {
                 return Err(format!(
@@ -131,7 +131,7 @@ impl Recorder {
 
 fn build_stream<T>(
     device: &cpal::Device,
-    config: &cpal::StreamConfig,
+    config: cpal::StreamConfig,
     data: &Arc<Mutex<Vec<i16>>>,
     error: &Arc<Mutex<Option<String>>>,
     level: &Arc<AtomicUsize>,
