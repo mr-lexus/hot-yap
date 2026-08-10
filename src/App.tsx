@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import { type StatusReport } from "./types";
+import { type CudaRuntimeReport, type StatusReport } from "./types";
 import ModelManager from "./ModelManager";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icons";
@@ -41,6 +41,13 @@ const DEFAULT_STATUS: StatusReport = {
   stt_model: "",
   stt_ready: false,
   text_provider: "none",
+  cuda_runtime: {
+    gpu_available: false,
+    runtime_ok: true,
+    missing: [],
+    progress: null,
+    error: null,
+  },
 };
 
 function hotkeyParts(shortcut: string): string[] {
@@ -154,7 +161,22 @@ export default function App() {
            audio_spectrum: e.payload.spectrum,
          }));
        });
-       listenersRef.current = [un1, un2, un3, un4];
+       const un5 = await listen<{ fraction: number }>("vox:cuda-runtime-progress", (e) => {
+         setStatus(prev => ({
+           ...prev,
+           cuda_runtime: {
+             ...prev.cuda_runtime,
+             progress: e.payload.fraction,
+             error: null,
+           },
+         }));
+       });
+       listenersRef.current = [un1, un2, un3, un4, un5];
+       // Ask the backend whether the CUDA runtime is usable; the result
+       // decides whether the "download CUDA runtime" banner is shown.
+       invoke<CudaRuntimeReport>("check_cuda_runtime")
+         .then((report) => setStatus(prev => ({ ...prev, cuda_runtime: report })))
+         .catch((e) => console.error("check_cuda_runtime failed:", e));
     })();
     const poll = setInterval(() => {
       invoke<StatusReport>("get_status")
@@ -327,6 +349,43 @@ export default function App() {
           {cloudTranscription ? t("settings.button") : t("model.manage")}
         </button>
       </section>
+
+      {!cloudTranscription && !status.cuda_runtime.runtime_ok && (
+        <section className="card card-warning cuda-banner">
+          <div className="cuda-banner-copy">
+            <p className="warn-msg">{status.cuda_runtime.missing.length > 0 ? t("cuda.banner") : status.cuda_runtime.error ?? t("cuda.banner")}</p>
+            {status.cuda_runtime.missing.length > 0 && (
+              <p className="cuda-banner-detail">{t("cuda.missing", { dlls: status.cuda_runtime.missing.join(", ") })}</p>
+            )}
+            {!status.cuda_runtime.gpu_available && status.cuda_runtime.missing.length > 0 && (
+              <p className="cuda-banner-detail">{t("cuda.noDriver")}</p>
+            )}
+            <p className="cuda-banner-detail">{t("cuda.cpuFallback")}</p>
+          </div>
+          <div className="cuda-banner-actions">
+            {status.cuda_runtime.progress != null ? (
+              <span className="cuda-banner-progress">
+                <Icon name="download" size={13} />
+                {t("cuda.downloading", { progress: Math.round(status.cuda_runtime.progress * 100) })}
+              </span>
+            ) : status.cuda_runtime.runtime_ok ? (
+              <span className="cuda-banner-detail">{t("cuda.done")}</span>
+            ) : status.cuda_runtime.gpu_available ? (
+              <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => run(() => invoke("install_cuda_runtime"))}>
+                <Icon name="download" size={13} />
+                {status.cuda_runtime.error ? t("cuda.retry") : t("cuda.download")}
+              </button>
+            ) : null}
+            {status.cuda_runtime.error && status.cuda_runtime.progress == null && (
+              <p className="cuda-banner-detail cuda-banner-error">{t("cuda.downloadFailed", { error: status.cuda_runtime.error })}</p>
+            )}
+            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => invoke("restart_worker"))}>
+              <Icon name="refresh" size={13} />
+              {t("cuda.restart")}
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="workspace">
         <main className="main-column">

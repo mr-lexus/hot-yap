@@ -150,6 +150,19 @@ python3 -m compileall -q backend
 
 Точные верхнеуровневые зависимости release worker зафиксированы в `backend/requirements-release.txt`. Workflow дополнительно запускает JSONL smoke test готового worker до упаковки приложения.
 
+### CUDA runtime в Windows-бандле
+
+Windows-версия worker поддерживает GPU-инференс Whisper через cuBLAS. `ctranslate2.dll` загружает `cublas64_12.dll` в рантайме через `LoadLibrary` (без статического импорта), поэтому PyInstaller не находит его автоматически. Чтобы конечному пользователю не требовался установленный CUDA Toolkit:
+
+- Windows-шаг workflow ставит wheel `nvidia-cublas-cu12==12.4.5.8` (официальный redistributable-компонент NVIDIA) и добавляет в бандл ровно два файла из него: `cublas64_12.dll` и `cublasLt64_12.dll` (статическая зависимость cuBLAS).
+- PyInstaller onefile кладёт их в корень распаковки и добавляет этот каталог в DLL search path через `SetDllDirectoryW`, так что `LoadLibrary("cublas64_12.dll")` находит их без изменения `PATH`.
+- `cudart64_12.dll` и cuDNN в бандл не попадают: ни `ctranslate2.dll`, ни cuBLAS 12 на них не ссылаются (драйвер используется напрямую через `nvcuda.dll`).
+- Windows smoke test гоняет команду `verify_cuda_runtime`, которая загружает обе DLL через `ctypes.WinDLL` и падает на CI при отсутствии хотя бы одной. Загрузка DLL не требует GPU, поэтому проверка работает на runner без видеокарты.
+- Если runtime всё же отсутствует (например, dev-сборка или повреждённый бандл), приложение предлагает скачать его: команда `download_cuda_runtime` забирает официальный wheel `nvidia-cublas-cu12` с PyPI, извлекает только две DLL в `<models>/cuda-runtime/` и добавляет каталог в DLL search path через `os.add_dll_directory`. UI показывает баннер с кнопкой «Скачать CUDA runtime» и прогрессом.
+- Лицензия NVIDIA cuBLAS: `backend/licenses/NVIDIA-cuBLAS-License.txt` (EULA из wheel 12.4.5.8). Дистрибуция разрешена как встроенный в приложение объектный код при соблюдении условий EULA.
+
+Ограничение: CPU-only пользователи Windows также получают ~570 MB cuBLAS DLL внутри worker (универсальный sidecar). Разделение CPU/CUDA worker'ов запланировано как отдельный шаг.
+
 Модели Whisper не включены в sidecar и установщик. Они загружаются по выбору пользователя в app data. Это сохраняет разумный размер релиза и позволяет выбирать модели от tiny до large-v3.
 
 Для ручной отладки можно переопределить запуск:
@@ -177,7 +190,7 @@ Workflow: `.github/workflows/release.yml`.
 1. Устанавливает Node, pnpm, Python 3.12 и Rust target.
 2. Устанавливает системные Tauri-зависимости на Linux.
 3. Собирает нативный PyInstaller worker текущей архитектуры.
-4. Проверяет worker командами `status` и `shutdown` через JSON Lines.
+4. Проверяет worker через JSON Lines: на Linux/macOS командами `status` и `shutdown`, на Windows — `verify_cuda_runtime` (загрузка CUDA runtime DLL) и `shutdown`.
 5. Запускает `tauri-apps/tauri-action` с release-конфигурацией.
 6. Добавляет пакеты в GitHub prerelease.
 

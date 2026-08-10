@@ -4,12 +4,15 @@ The model object lives in the worker process state and is loaded exactly
 once (on `load_model`), then reused for every `transcribe` call.
 """
 
+import os
 import re
 import sys
 import time
 from pathlib import Path
 
 SUB = "ct2_int8_float16"
+
+CUDA_RUNTIME_DIRNAME = "cuda-runtime"
 
 # Prompt-conditioning strongly biases Whisper's output style: it teaches the
 # decoder to keep embedded English words in latin script instead of writing
@@ -66,7 +69,22 @@ def _model_path(model_dir: str, ct2_subdir=None) -> Path:
     return (p / ct2_subdir) if ct2_subdir else p
 
 
-def load_model(state: dict, model_dir: str, ct2_subdir=None):
+def _prepare_cuda_runtime(models_root=None):
+    """Add a downloaded CUDA runtime directory to the DLL search path.
+
+    The release bundle already ships the DLLs next to the frozen worker, but a
+    runtime installed via `download_cuda_runtime` lives under the models
+    directory and must be made visible to LoadLibrary before ctranslate2 uses
+    it. No-op when the directory is absent (bundled or system runtime).
+    """
+    if sys.platform != "win32" or not models_root:
+        return
+    runtime_dir = Path(models_root) / CUDA_RUNTIME_DIRNAME
+    if runtime_dir.is_dir():
+        os.add_dll_directory(str(runtime_dir))
+
+
+def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None):
     """Load the model. Tries CUDA first, falls back to CPU on any failure.
 
     Returns (device, compute_type).
@@ -77,6 +95,8 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None):
         raise FileNotFoundError(
             f"model files not found at {path}. Download the model first."
         )
+
+    _prepare_cuda_runtime(models_root)
 
     import ctranslate2
 

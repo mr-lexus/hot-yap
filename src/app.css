@@ -332,6 +332,12 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
 .card-error { border-color: rgba(225,124,117,0.45); }
 .card-warning { border-color: rgba(223,179,111,0.45); }
 .card-warning .warn-msg { margin: 0; }
+.cuda-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.cuda-banner-copy { min-width: 0; flex: 1 1 280px; }
+.cuda-banner-detail { margin: 4px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.cuda-banner-error { color: var(--red); }
+.cuda-banner-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cuda-banner-progress { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); font-size: 12px; }
 .error-msg { margin: 0; color: var(--red); font-size: 12px; overflow-wrap: anywhere; }
 .card-transcript { min-height: 82px; }
 .transcript { margin: 10px 0 6px; color: var(--text); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; user-select: text; }

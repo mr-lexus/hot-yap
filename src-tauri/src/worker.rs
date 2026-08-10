@@ -46,7 +46,15 @@ fn is_terminal(msg: &WorkerMessage) -> bool {
     }
     matches!(
         msg.event.as_deref(),
-        Some("status" | "model_downloaded" | "model_loaded" | "transcribed" | "shutdown_ack")
+        Some(
+            "status"
+                | "model_downloaded"
+                | "model_loaded"
+                | "transcribed"
+                | "shutdown_ack"
+                | "cuda_runtime_verified"
+                | "cuda_runtime_downloaded"
+        )
     )
 }
 
@@ -349,6 +357,14 @@ pub async fn request(
                     "elapsed": e,
                     "fraction": msg.payload.get("fraction").and_then(|v| v.as_f64())
                 }));
+            }
+        }
+        if msg.event.as_deref() == Some("cuda_runtime_progress") {
+            if let Some(f) = msg.payload.get("fraction").and_then(|v| v.as_f64()) {
+                if let Some(st) = app.try_state::<AppState>() {
+                    st.lock().cuda_runtime.progress = Some(f as f32);
+                }
+                let _ = app.emit("vox:cuda-runtime-progress", json!({"fraction": f}));
             }
         }
     }

@@ -38,6 +38,22 @@ pub enum ModelTier {
     Heavy,
 }
 
+/// Availability of the NVIDIA cuBLAS runtime for GPU inference.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct CudaRuntimeReport {
+    /// Whether the NVIDIA driver (nvcuda.dll) is present and a GPU is usable.
+    pub gpu_available: bool,
+    /// Whether every required cuBLAS DLL could be loaded.
+    pub runtime_ok: bool,
+    /// Names of the DLLs that failed to load.
+    pub missing: Vec<String>,
+    /// Non-null while a runtime download is in progress (0.0..1.0).
+    pub progress: Option<f32>,
+    /// Human-readable error from the last failed attempt, if any.
+    pub error: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
@@ -88,6 +104,7 @@ pub struct StatusReport {
     pub stt_model: String,
     pub stt_ready: bool,
     pub text_provider: String,
+    pub cuda_runtime: CudaRuntimeReport,
 }
 
 pub struct AppStateInner {
@@ -121,6 +138,7 @@ pub struct AppStateInner {
     pub hotkey_path: PathBuf,
     pub provider_settings_path: PathBuf,
     pub provider_settings: crate::providers::ProviderSettings,
+    pub cuda_runtime: CudaRuntimeReport,
 }
 
 pub struct AppState(pub Mutex<AppStateInner>);
@@ -178,6 +196,7 @@ impl AppStateInner {
             stt_model,
             stt_ready,
             text_provider: self.provider_settings.text_provider.clone(),
+            cuda_runtime: self.cuda_runtime.clone(),
         }
     }
 }

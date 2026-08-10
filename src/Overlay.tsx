@@ -53,6 +53,13 @@ const EMPTY_STATUS: StatusReport = {
   stt_model: "",
   stt_ready: false,
   text_provider: "none",
+  cuda_runtime: {
+    gpu_available: false,
+    runtime_ok: true,
+    missing: [],
+    progress: null,
+    error: null,
+  },
 };
 
 export default function Overlay() {

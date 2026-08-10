@@ -212,5 +212,17 @@
     "copyErrorHint": "Could not write it to the clipboard",
     "error": "Could not transcribe",
     "errorHint": "Open HotYap for details"
+  },
+  "cuda": {
+    "banner": "GPU acceleration needs the NVIDIA CUDA runtime, which is missing on this computer.",
+    "missing": "Missing components: {{dlls}}",
+    "download": "Download CUDA runtime (~570 MB)",
+    "downloading": "Downloading CUDA runtime {{progress}}%",
+    "downloadFailed": "CUDA runtime download failed: {{error}}",
+    "retry": "Retry",
+    "done": "CUDA runtime installed. Restart the engine and load the model again.",
+    "noDriver": "No NVIDIA driver detected. Install the latest NVIDIA driver to use GPU acceleration.",
+    "cpuFallback": "The app will keep working on CPU in the meantime.",
+    "restart": "Restart engine"
   }
 }

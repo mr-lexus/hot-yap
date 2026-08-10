@@ -27,6 +27,118 @@ pub async fn get_status(app: AppHandle) -> Result<crate::state::StatusReport, St
     Ok(report)
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub async fn check_cuda_runtime(app: AppHandle) -> Result<crate::state::CudaRuntimeReport, String> {
+    log::debug!("command: check_cuda_runtime");
+    if !worker::is_alive(&app) {
+        return Ok(app.state::<AppState>().lock().cuda_runtime.clone());
+    }
+
+    let models_root = worker::model_dir(&app);
+    let response = request(
+        &app,
+        &*app.state::<Arc<worker::Worker>>(),
+        json!({"command": "verify_cuda_runtime", "models_root": models_root}),
+        Duration::from_secs(30),
+    )
+    .await?;
+
+    let gpu_available = response
+        .payload
+        .get("gpu_available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let missing: Vec<String> = response
+        .payload
+        .get("missing")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let runtime_ok = response
+        .payload
+        .get("runtime_ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(missing.is_empty());
+
+    set(&app, |i| {
+        i.cuda_runtime = crate::state::CudaRuntimeReport {
+            gpu_available,
+            runtime_ok,
+            missing,
+            progress: None,
+            error: None,
+        };
+    });
+    emit_status(&app);
+    Ok(app.state::<AppState>().lock().cuda_runtime.clone())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn install_cuda_runtime(app: AppHandle) -> Result<(), String> {
+    log::info!("command: install_cuda_runtime");
+    {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        if inner.cuda_runtime.runtime_ok {
+            return Ok(());
+        }
+        if inner.cuda_runtime.progress.is_some() {
+            return Err("CUDA runtime download already in progress".into());
+        }
+        inner.cuda_runtime.progress = Some(0.0);
+        inner.cuda_runtime.error = None;
+    }
+    emit_status(&app);
+
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let models_root = worker::model_dir(&app2);
+        let result = request(
+            &app2,
+            &*app2.state::<Arc<worker::Worker>>(),
+            json!({"command": "download_cuda_runtime", "models_root": models_root}),
+            Duration::from_secs(3600),
+        )
+        .await;
+        match result {
+            Ok(msg) => {
+                let missing: Vec<String> = msg
+                    .payload
+                    .get("missing")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                log::info!("CUDA runtime download finished; missing: {missing:?}");
+                set(&app2, |i| {
+                    i.cuda_runtime.progress = None;
+                    i.cuda_runtime.missing = missing.clone();
+                    i.cuda_runtime.runtime_ok = missing.is_empty();
+                    if missing.is_empty() {
+                        i.cuda_runtime.error = None;
+                    }
+                });
+            }
+            Err(e) => {
+                log::error!("CUDA runtime download failed: {e}");
+                set(&app2, |i| {
+                    i.cuda_runtime.progress = None;
+                    i.cuda_runtime.error = Some(e.clone());
+                });
+            }
+        }
+        emit_status(&app2);
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_models(app: AppHandle) -> Result<Vec<crate::state::ModelInfo>, String> {
     log::debug!("command: list_models");
@@ -318,7 +430,12 @@ pub async fn load_model(app: AppHandle, model_id: String) -> Result<(), String> 
         let result = request(
             &app2,
             &*app2.state::<Arc<worker::Worker>>(),
-            json!({"command": "load_model", "model_dir": dir, "ct2_subdir": ct2_subdir}),
+            json!({
+                "command": "load_model",
+                "model_dir": dir,
+                "ct2_subdir": ct2_subdir,
+                "models_root": worker::model_dir(&app2),
+            }),
             Duration::from_secs(900),
         )
         .await;
@@ -824,6 +941,9 @@ pub async fn restart_worker(app: AppHandle) -> Result<(), String> {
                 i.last_error = None;
             });
             emit_status(&app);
+            // Re-check whether the CUDA runtime became usable (e.g. after a
+            // runtime download finished); harmless when nothing changed.
+            let _ = check_cuda_runtime(app.clone()).await;
             Ok(())
         }
         Err(e) => {

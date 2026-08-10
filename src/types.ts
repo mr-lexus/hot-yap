@@ -24,6 +24,14 @@ export interface ModelInfo {
   tier: ModelTier;
 }
 
+export interface CudaRuntimeReport {
+  gpu_available: boolean;
+  runtime_ok: boolean;
+  missing: string[];
+  progress: number | null;
+  error: string | null;
+}
+
 export interface StatusReport {
   model_status: ModelStatus;
   model_error: string | null;
@@ -52,6 +60,7 @@ export interface StatusReport {
   stt_model: string;
   stt_ready: boolean;
   text_provider: string;
+  cuda_runtime: CudaRuntimeReport;
 }
 
 export interface ProviderConfig {

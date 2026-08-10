@@ -343,6 +343,7 @@ pub fn run() {
                 hotkey_path,
                 provider_settings_path,
                 provider_settings,
+                cuda_runtime: state::CudaRuntimeReport::default(),
             })));
 
             // Start the Python worker asynchronously; the app still opens if it fails.
@@ -395,6 +396,8 @@ pub fn run() {
                         }
                         drop(inner);
                     }
+                    // Surface whether the CUDA runtime is usable (banner in the UI).
+                    let _ = commands::check_cuda_runtime(app2.clone()).await;
                 }
                 emit_status(&app2);
             });
@@ -441,6 +444,8 @@ pub fn run() {
             commands::set_hotkey,
             commands::restart_worker,
             commands::update_model_catalog,
+            commands::check_cuda_runtime,
+            commands::install_cuda_runtime,
             commands::get_provider_settings,
             commands::save_provider_settings,
             commands::delete_provider_secret

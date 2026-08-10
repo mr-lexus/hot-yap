@@ -121,6 +121,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          python -m pip install nvidia-cublas-cu12==12.4.5.8 --no-deps
+          $cublasDir = Join-Path (python -c "import site; print(site.getsitepackages()[0])") "nvidia\cublas\bin"
+          if (-not (Test-Path (Join-Path $cublasDir "cublas64_12.dll"))) {
+            throw "cublas64_12.dll not found in $cublasDir"
+          }
           python -m PyInstaller `
             --noconfirm --clean --onefile `
             --name hotyap-worker `
@@ -132,6 +137,8 @@ jobs:
             --collect-all av `
             --collect-all tokenizers `
             --collect-all huggingface_hub `
+            --add-binary "$cublasDir\cublas64_12.dll;." `
+            --add-binary "$cublasDir\cublasLt64_12.dll;." `
             --distpath build/worker `
             --workpath build/pyinstaller `
             --specpath build `
@@ -154,8 +161,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/worker-smoke | Out-Null
-          '{"id":1,"command":"status","model_dir":"build/worker-smoke","catalog":[]}', '{"id":2,"command":"shutdown"}' |
-            & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe"
+          $output = '{"id":1,"command":"verify_cuda_runtime"}', '{"id":2,"command":"shutdown"}' |
+            & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" 2>&1
+          $resp = $output | Where-Object { $_ -match '"id":1' } | Select-Object -Last 1 | ConvertFrom-Json
+          if (-not $resp.ok -or -not $resp.runtime_ok) {
+            Write-Error "CUDA runtime verification failed: dlls=$($resp.dlls | ConvertTo-Json -Compress) error=$($resp.error)"
+            exit 1
+          }
+          Write-Host "CUDA runtime verified: $($resp.dlls | ConvertTo-Json -Compress)"
 
       - name: Remove worker build intermediates (Unix)
         if: runner.os != 'Windows'
