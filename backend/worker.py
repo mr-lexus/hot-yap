@@ -264,7 +264,11 @@ def cmd_load(req):
     import inference
 
     device, compute_type = inference.load_model(
-        state, req.get("model_dir"), req.get("ct2_subdir"), req.get("models_root")
+        state,
+        req.get("model_dir"),
+        req.get("ct2_subdir"),
+        req.get("models_root"),
+        device=req.get("device", "auto"),
     )
     return {"event": "model_loaded", "device": device, "compute_type": compute_type}
 

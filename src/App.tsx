@@ -41,6 +41,7 @@ const DEFAULT_STATUS: StatusReport = {
   stt_model: "",
   stt_ready: false,
   text_provider: "none",
+  local_device: "auto",
   cuda_runtime: {
     gpu_available: false,
     runtime_ok: true,
@@ -502,6 +503,27 @@ export default function App() {
             </p>
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
             {!cloudTranscription && !status.worker_alive && <p className="error-msg">{t("engine.workerOffline")}</p>}
+            {!cloudTranscription && currentModel?.downloaded && (
+              <div className="device-select-inline" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", marginBottom: "8px" }}>
+                <span style={{ fontSize: "12px", opacity: 0.8 }}>{t("settings.deviceSelect")}:</span>
+                <select
+                  className="device-selector"
+                  disabled={busy || status.engine_status === "loading" || !status.worker_alive}
+                  value={status.local_device || "auto"}
+                  onChange={(e) => {
+                    const nextDev = e.target.value;
+                    if (currentModel) {
+                      run(() => invoke("load_model", { model_id: currentModel.id, device: nextDev }));
+                    }
+                  }}
+                  style={{ fontSize: "12px", padding: "2px 6px", borderRadius: "4px", background: "var(--bg-card)", color: "inherit", border: "1px solid var(--border)" }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="cuda">CUDA (GPU)</option>
+                  <option value="cpu">CPU</option>
+                </select>
+              </div>
+            )}
             <div className="actions">
               {!cloudTranscription && currentModel?.downloaded && status.engine_status !== "ready" && (
                 <button className="btn btn-primary btn-sm" disabled={busy || status.engine_status === "loading" || !status.worker_alive} onClick={() => run(() => invoke("load_model", { model_id: currentModel.id }))}>

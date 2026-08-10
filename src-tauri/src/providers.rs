@@ -58,11 +58,17 @@ pub struct ProviderConfig {
     pub api_key_set: bool,
 }
 
+fn default_local_device() -> String {
+    "auto".into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderSettings {
     pub stt_provider: String,
     pub text_provider: String,
     pub postprocess_prompt: String,
+    #[serde(default = "default_local_device")]
+    pub local_device: String,
     pub providers: HashMap<String, ProviderConfig>,
 }
 
@@ -85,6 +91,7 @@ impl Default for ProviderSettings {
             stt_provider: "local".into(),
             text_provider: "none".into(),
             postprocess_prompt: DEFAULT_PROMPT.into(),
+            local_device: "auto".into(),
             providers,
         }
     }
@@ -116,6 +123,9 @@ pub fn normalize(settings: &mut ProviderSettings) {
     }
     if !TEXT_PROVIDER_IDS.contains(&settings.text_provider.as_str()) {
         settings.text_provider = "none".into();
+    }
+    if !matches!(settings.local_device.as_str(), "auto" | "cuda" | "cpu") {
+        settings.local_device = "auto".into();
     }
     if settings.postprocess_prompt.trim().is_empty() {
         settings.postprocess_prompt = DEFAULT_PROMPT.into();
@@ -155,6 +165,9 @@ pub fn validate(settings: &ProviderSettings) -> Result<(), String> {
     }
     if !TEXT_PROVIDER_IDS.contains(&settings.text_provider.as_str()) {
         return Err("Unknown text-processing provider".into());
+    }
+    if !matches!(settings.local_device.as_str(), "auto" | "cuda" | "cpu") {
+        return Err("Invalid local compute device".into());
     }
     if settings.postprocess_prompt.len() > 4000 {
         return Err("Post-processing instruction is too long".into());

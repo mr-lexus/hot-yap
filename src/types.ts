@@ -60,6 +60,7 @@ export interface StatusReport {
   stt_model: string;
   stt_ready: boolean;
   text_provider: string;
+  local_device: string;
   cuda_runtime: CudaRuntimeReport;
 }
 
@@ -74,6 +75,7 @@ export interface ProviderSettings {
   stt_provider: string;
   text_provider: string;
   postprocess_prompt: string;
+  local_device: string;
   providers: Record<string, ProviderConfig>;
 }
 

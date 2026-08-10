@@ -177,6 +177,16 @@ pub async fn save_provider_settings(
         }
     }
     providers::refresh_secret_statuses(&mut settings);
+    let (old_device, should_reload) = {
+        let st = app.state::<AppState>();
+        let inner = st.lock();
+        (
+            inner.provider_settings.local_device.clone(),
+            inner.engine_status == EngineStatus::Ready
+                && inner.current_model_id.is_some()
+                && inner.provider_settings.stt_provider == "local",
+        )
+    };
     let path = app.state::<AppState>().lock().provider_settings_path.clone();
     providers::persist_settings(&path, &settings)?;
     set(&app, |inner| {
@@ -184,6 +194,17 @@ pub async fn save_provider_settings(
         inner.last_error = None;
     });
     emit_status(&app);
+
+    if should_reload && old_device != settings.local_device {
+        if let Some(model_id) = app.state::<AppState>().lock().current_model_id.clone() {
+            let app_clone = app.clone();
+            let new_dev = settings.local_device.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = load_model(app_clone, model_id, Some(new_dev)).await;
+            });
+        }
+    }
+
     Ok(settings)
 }
 
@@ -397,10 +418,10 @@ pub async fn delete_model(app: AppHandle, model_id: String) -> Result<(), String
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn load_model(app: AppHandle, model_id: String) -> Result<(), String> {
-    log::info!("command: load_model {}", model_id);
+pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>) -> Result<(), String> {
+    log::info!("command: load_model {} device={:?}", model_id, device);
 
-    let ct2_subdir = {
+    let (ct2_subdir, target_device) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
         let model = inner.models.iter().find(|m| m.id == model_id)
@@ -409,7 +430,8 @@ pub async fn load_model(app: AppHandle, model_id: String) -> Result<(), String> 
         if !model.downloaded {
             return Err("Model is not downloaded yet".into());
         }
-        model.ct2_subdir.clone()
+        let dev = device.unwrap_or_else(|| inner.provider_settings.local_device.clone());
+        (model.ct2_subdir.clone(), dev)
     };
 
     {
@@ -435,6 +457,7 @@ pub async fn load_model(app: AppHandle, model_id: String) -> Result<(), String> 
                 "model_dir": dir,
                 "ct2_subdir": ct2_subdir,
                 "models_root": worker::model_dir(&app2),
+                "device": target_device,
             }),
             Duration::from_secs(900),
         )

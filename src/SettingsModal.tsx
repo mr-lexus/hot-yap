@@ -261,9 +261,28 @@ export default function SettingsModal({ open, accent, iconPreference, onAccentCh
                     {STT_PROVIDERS.map((provider) => <option key={provider} value={provider}>{displayProviderName(provider)}</option>)}
                   </select>
                 </label>
-                {settings.stt_provider === "local"
-                  ? <p className="settings-note"><Icon name="lock" size={14} />{t("settings.localHint")}</p>
-                  : providerFields(settings.stt_provider, "stt")}
+                {settings.stt_provider === "local" ? (
+                  <>
+                    <p className="settings-note"><Icon name="lock" size={14} />{t("settings.localHint")}</p>
+                    <label className="settings-field settings-provider-select" style={{ marginTop: "12px" }}>
+                      <span>{t("settings.deviceSelect")}</span>
+                      <select
+                        disabled={saving}
+                        value={settings.local_device || "auto"}
+                        onChange={(event) => {
+                          setSettings({ ...settings, local_device: event.target.value });
+                          setSaved(false);
+                        }}
+                      >
+                        <option value="auto">{t("settings.deviceAuto")}</option>
+                        <option value="cuda">{t("settings.deviceCuda")}</option>
+                        <option value="cpu">{t("settings.deviceCpu")}</option>
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  providerFields(settings.stt_provider, "stt")
+                )}
               </>
             ) : <p className="settings-note">{t("settings.loading")}</p>}
           </section>

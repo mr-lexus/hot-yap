@@ -104,6 +104,7 @@ pub struct StatusReport {
     pub stt_model: String,
     pub stt_ready: bool,
     pub text_provider: String,
+    pub local_device: String,
     pub cuda_runtime: CudaRuntimeReport,
 }
 
@@ -196,6 +197,7 @@ impl AppStateInner {
             stt_model,
             stt_ready,
             text_provider: self.provider_settings.text_provider.clone(),
+            local_device: self.provider_settings.local_device.clone(),
             cuda_runtime: self.cuda_runtime.clone(),
         }
     }

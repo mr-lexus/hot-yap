@@ -84,8 +84,8 @@ def _prepare_cuda_runtime(models_root=None):
         os.add_dll_directory(str(runtime_dir))
 
 
-def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None):
-    """Load the model. Tries CUDA first, falls back to CPU on any failure.
+def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, device="auto"):
+    """Load the model according to the requested device preference ('auto', 'cuda', 'cpu').
 
     Returns (device, compute_type).
     """
@@ -101,23 +101,50 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None):
     import ctranslate2
 
     t0 = time.monotonic()
-    try:
-        n_gpu = ctranslate2.get_cuda_device_count()
-    except Exception as e:
-        log(f"CUDA probe failed: {e}")
-        n_gpu = 0
+    req_device = (device or "auto").lower()
 
-    if n_gpu > 0:
-        log(f"CUDA detected ({n_gpu} device(s)), loading model on GPU (int8_float16)...")
+    if req_device in ("auto", "cuda"):
         try:
-            m = _load_faster_whisper(path, device="cuda", compute_type="int8_float16")
-            state["model"] = m
-            state["device"] = "cuda"
-            state["compute_type"] = "int8_float16"
-            log(f"model loaded on CUDA in {time.monotonic()-t0:.1f}s")
-            return "cuda", "int8_float16"
+            n_gpu = ctranslate2.get_cuda_device_count()
         except Exception as e:
-            log(f"CUDA model load failed ({e}); falling back to CPU (int8)")
+            log(f"CUDA probe failed: {e}")
+            n_gpu = 0
+
+        if n_gpu > 0:
+            log(f"CUDA detected ({n_gpu} device(s)), querying supported compute types...")
+            try:
+                supported = ctranslate2.get_supported_compute_types("cuda")
+            except Exception as e:
+                log(f"Failed to query CUDA compute types: {e}")
+                supported = set()
+
+            # Prefer float16 for stability and speed on CUDA, then int8_float16, then float32, then int8.
+            cuda_candidates = []
+            for candidate in ("float16", "int8_float16", "float32", "int8"):
+                if not supported or candidate in supported:
+                    cuda_candidates.append(candidate)
+            if not cuda_candidates:
+                cuda_candidates = ["float16", "int8_float16", "float32"]
+
+            cuda_error = None
+            for c_type in cuda_candidates:
+                try:
+                    log(f"Attempting to load model on CUDA ({c_type})...")
+                    m = _load_faster_whisper(path, device="cuda", compute_type=c_type)
+                    state["model"] = m
+                    state["device"] = "cuda"
+                    state["compute_type"] = c_type
+                    log(f"model loaded on CUDA ({c_type}) in {time.monotonic()-t0:.1f}s")
+                    return "cuda", c_type
+                except Exception as e:
+                    log(f"CUDA model load with compute_type={c_type} failed: {e}")
+                    cuda_error = e
+
+            if req_device == "cuda":
+                raise RuntimeError(f"CUDA model load failed: {cuda_error}") from cuda_error
+            log(f"CUDA model load failed ({cuda_error}); falling back to CPU (int8)")
+        elif req_device == "cuda":
+            raise RuntimeError("CUDA device was requested, but no CUDA GPU was detected.")
 
     log("loading model on CPU (int8)...")
     try:
@@ -128,7 +155,7 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None):
         log(f"model loaded on CPU in {time.monotonic()-t0:.1f}s")
         return "cpu", "int8"
     except Exception as e:
-        raise RuntimeError(f"model load failed on both CUDA and CPU: {e}") from e
+        raise RuntimeError(f"model load failed: {e}") from e
 
 
 def _load_faster_whisper(path: Path, device: str, compute_type: str):
@@ -159,24 +186,29 @@ def transcribe(state: dict, audio_path: str, on_progress=None):
         raise RuntimeError("model is not loaded; press 'Start model' first")
 
     t0 = time.monotonic()
-    segments, info = model.transcribe(
-        audio_path,
-        language="ru",
-        task="transcribe",
-        # CPU dictation must stay responsive; CUDA keeps the more accurate beam.
-        beam_size=1 if state.get("device") == "cpu" else 5,
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-        condition_on_previous_text=False,
-        initial_prompt=INITIAL_PROMPT,
-    )
-    # The segment generator decodes progressively, so the running end-time of
-    # the last yielded segment is a good real-progress signal.
+    dev = state.get("device", "cpu")
     text_parts = []
-    for seg in segments:
-        text_parts.append(seg.text.strip())
-        if on_progress and info.duration:
-            on_progress(min(0.99, seg.end / info.duration))
+
+    try:
+        segments, info = model.transcribe(
+            audio_path,
+            language="ru",
+            task="transcribe",
+            # CPU dictation must stay responsive; CUDA keeps the more accurate beam.
+            beam_size=1 if dev == "cpu" else 5,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 500},
+            condition_on_previous_text=False,
+            initial_prompt=INITIAL_PROMPT,
+        )
+        for seg in segments:
+            text_parts.append(seg.text.strip())
+            if on_progress and info.duration:
+                on_progress(min(0.99, seg.end / info.duration))
+    except Exception as e:
+        log(f"transcribe execution failed on device={dev}:\n{traceback.format_exc()}")
+        raise RuntimeError(f"Transcription failed on {dev}: {e}") from e
+
     if on_progress:
         on_progress(1.0)
     wall = time.monotonic() - t0
