@@ -346,7 +346,7 @@ CUDA_RUNTIME_DLLS = ("cublas64_12.dll", "cublasLt64_12.dll")
 
 
 def _cuda_runtime_dir(models_root):
-    return Path(models_root) / CUDA_RUNTIME_DIRNAME
+    return (Path(models_root) / CUDA_RUNTIME_DIRNAME).resolve()
 
 
 def _emit_cuda_progress(req_id, fraction):
