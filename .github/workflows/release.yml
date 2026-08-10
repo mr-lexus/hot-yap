@@ -163,7 +163,7 @@ jobs:
           New-Item -ItemType Directory -Force build/worker-smoke | Out-Null
           $output = '{"id":1,"command":"verify_cuda_runtime"}', '{"id":2,"command":"shutdown"}' |
             & "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" 2>&1
-          $resp = $output | Where-Object { $_ -match '"id":1' } | Select-Object -Last 1 | ConvertFrom-Json
+          $resp = $output | Where-Object { $_ -match '"id":\s*1' } | Select-Object -Last 1 | ConvertFrom-Json
           if (-not $resp.ok -or -not $resp.runtime_ok) {
             Write-Error "CUDA runtime verification failed: dlls=$($resp.dlls | ConvertTo-Json -Compress) error=$($resp.error)"
             exit 1
