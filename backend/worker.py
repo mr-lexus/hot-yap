@@ -12,6 +12,7 @@ Rust -> worker:
     {"id":6,"command":"shutdown"}
     {"id":7,"command":"verify_cuda_runtime","models_root":"..."}
     {"id":8,"command":"download_cuda_runtime","models_root":"..."}
+    {"id":9,"command":"verify_vad"}
 
 worker -> Rust:
     {"event":"worker_ready","version":"..."}
@@ -26,6 +27,7 @@ worker -> Rust:
     {"id":7,"ok":true,"event":"cuda_runtime_verified","dlls":{"cublas64_12.dll":"ok","cublasLt64_12.dll":"ok"},"gpu_available":true,"runtime_ok":true,"missing":[]}
     {"id":8,"ok":true,"event":"cuda_runtime_progress","fraction":0.4}
     {"id":8,"ok":true,"event":"cuda_runtime_downloaded","path":"...","missing":[]}
+    {"id":9,"ok":true,"event":"vad_verified","onnxruntime_version":"1.18.1","session_ok":true,"chunks":0}
     {"id":4,"ok":false,"error":"human readable error"}
 
 Commands are executed sequentially (single stdin loop) so the model is
