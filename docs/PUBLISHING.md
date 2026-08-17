@@ -248,7 +248,7 @@ git push origin v0.1.0-alpha.1
 | `website/assets/screenshots/hotyap-landing.png` | Desktop hero лендинга 1440×1000 |
 | `website/assets/screenshots/hotyap-landing-mobile.png` | Русская mobile-версия 390×844 |
 | `website/assets/og-cover.png` | Social preview 1200×630 |
-| `website/assets/favicon.svg` | Векторная web-иконка |
+| `website/assets/favicon-dark.png` / `favicon-light.png` | Web-иконка (тема светлая/тёмная) |
 | `public/landing/` | Копии для стабильных Open Graph URL на GitHub Pages |
 
 Скриншот приложения снят из реально запущенного Tauri dev build. Лендинг снят headless Chrome из production-сборки с base path `/hot-yap/`.
