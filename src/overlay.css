@@ -7,7 +7,7 @@ html.overlay-page #root {
   overflow: hidden;
   background: transparent !important;
 }
-html.overlay-page #root { display: flex; align-items: flex-end; }
+html.overlay-page #root { display: flex; align-items: flex-end; justify-content: center; }
 
 html.overlay-page body::before { display: none; }
 
@@ -19,16 +19,18 @@ html.overlay-page body::before { display: none; }
   --overlay-accent-deep: var(--accent-deep);
   position: relative;
   isolation: isolate;
-  width: calc(100% - 12px);
-  height: 96px;
+  width: 340px;
+  max-width: calc(100% - 12px);
+  height: 82px;
   margin: 6px;
-  padding: 10px 13px 10px 10px;
+  padding: 7px 12px 7px 7px;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 96px;
+  grid-template-columns: 56px minmax(0, 168px) 76px;
   align-items: center;
-  gap: 11px;
+  justify-content: center;
+  gap: 7px;
   border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 20px;
+  border-radius: 18px;
   background: linear-gradient(145deg, rgba(38,42,40,0.97), rgba(18,21,20,0.98));
   color: #f5f3ec;
   box-shadow: none;
@@ -103,8 +105,8 @@ html.overlay-page body::before { display: none; }
   --logo-punch: 1;
   --logo-shake-speed: 145ms;
   --logo-rage-speed: 230ms;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   display: grid;
   place-items: center;
   transform-origin: 50% 58%;
@@ -119,20 +121,26 @@ html.overlay-page body::before { display: none; }
   transform-origin: 52% 55%;
 }
 .overlay-copy { min-width: 0; display: flex; flex-direction: column; }
-.overlay-brand { margin-bottom: 2px; color: var(--overlay-accent); font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
-.overlay-copy strong { overflow: hidden; color: #f5f3ec; font-size: 14px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.overlay-copy > span:last-child { margin-top: 3px; overflow: hidden; color: #a7aca6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-copy strong { overflow: hidden; color: #f5f3ec; font-size: 13px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-copy > span:last-child { margin-top: 2px; overflow: hidden; color: #a7aca6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .overlay-theme-light .overlay-copy strong { color: #222723; }
 .overlay-theme-light .overlay-copy > span:last-child { color: #656d67; }
-.overlay-visual { height: 48px; display: grid; place-items: center; }
+.overlay-visual { height: 40px; display: grid; place-items: center; }
 
-.overlay-spectrum { width: 88px; height: 42px; display: flex; align-items: center; justify-content: center; gap: 2px; }
-.overlay-spectrum span { width: 3px; min-height: 4px; border-radius: 3px; background: linear-gradient(to top, var(--overlay-accent-deep), var(--overlay-accent-hover)); transition: height 70ms linear; }
-.overlay-progress { --overlay-progress: 0deg; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--overlay-accent) var(--overlay-progress), rgba(255,255,255,0.1) 0); color: var(--overlay-accent-hover); position: relative; }
-.overlay-progress::before { position: absolute; inset: 4px; border-radius: inherit; background: #1c201e; content: ""; }
-.overlay-theme-light .overlay-progress::before { background: #f1f2ee; }
+.overlay-spectrum { width: 76px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 2px; }
+.overlay-spectrum span {
+  width: 3px;
+  min-height: 4px;
+  border-radius: 3px;
+  background: linear-gradient(to top, var(--overlay-accent-deep), var(--overlay-accent) 55%, var(--overlay-accent-hover));
+  transition: height 70ms linear;
+  animation: spectrum-sway 1.1s ease-in-out -0.3s infinite;
+}
+.overlay-progress { position: relative; width: 36px; height: 36px; display: grid; place-items: center; color: var(--overlay-accent-hover); }
+.overlay-spinner { position: absolute; inset: 0; border: 2.5px solid rgba(255,255,255,0.14); border-top-color: var(--overlay-accent); border-radius: 50%; animation: overlay-spin 0.85s cubic-bezier(.55,.08,.45,.92) infinite; }
+.overlay-theme-light .overlay-spinner { border-color: rgba(26,31,28,0.16); border-top-color: var(--overlay-accent); }
 .overlay-progress svg { position: relative; z-index: 1; animation: overlay-breathe 1.1s ease-in-out infinite; }
-.overlay-result { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; }
+.overlay-result { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
 .overlay-result.success { background: rgba(92,194,132,0.15); color: #79d49c; animation: result-pop 280ms cubic-bezier(.2,.9,.3,1.3) both; }
 .overlay-result.error { background: rgba(224,111,104,0.14); color: #e78179; }
 
@@ -142,6 +150,12 @@ html.overlay-page body::before { display: none; }
 }
 @keyframes overlay-ring { to { background-position: 100% 50%; } }
 @keyframes overlay-breathe { 50% { opacity: .55; transform: scale(.9); } }
+@keyframes overlay-spin { to { transform: rotate(360deg); } }
+@keyframes spectrum-sway {
+  0%, 100% { transform: scaleY(.72); }
+  40% { transform: scaleY(1.22); }
+  75% { transform: scaleY(.92); }
+}
 @keyframes result-pop { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
 @keyframes logo-meltdown {
   0% { transform: translate(var(--logo-shake), var(--logo-shake-negative)) rotate(var(--logo-tilt)) scale(var(--logo-punch)); }
@@ -165,6 +179,7 @@ html.overlay-page body::before { display: none; }
   .ptt-overlay::before,
   .overlay-logo.is-talking,
   .overlay-logo.is-talking .brand-logo,
+  .overlay-spectrum span,
   .overlay-progress svg,
   .overlay-result.success { animation: none; }
 }

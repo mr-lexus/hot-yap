@@ -206,16 +206,14 @@
     "recording": "Идёт запись",
     "recordingHint": "Отпустите клавишу для обработки",
     "processing": "Обрабатываем речь",
-    "processingHint": "Локальное распознавание · {{progress}}%",
-    "processingUnknown": "Выполняется локальное распознавание",
-    "processingCloudHint": "Облачное распознавание · {{progress}}%",
-    "processingCloudUnknown": "Выполняется облачное распознавание",
+    "processingUnknown": "Распознаём локально…",
+    "processingCloudUnknown": "Распознаём в облаке…",
     "copied": "Скопировано в буфер",
     "copiedHint": "Текст готов для вставки",
     "copyError": "Текст распознан",
-    "copyErrorHint": "Не удалось записать его в буфер обмена",
+    "copyErrorHint": "Не удалось записать в буфер",
     "error": "Не удалось распознать",
-    "errorHint": "Откройте Горячий Лай для подробностей"
+    "errorHint": "Подробности — в приложении"
   },
   "cuda": {
     "banner": "Для ускорения GPU не хватает CUDA runtime, которого нет на этом компьютере.",

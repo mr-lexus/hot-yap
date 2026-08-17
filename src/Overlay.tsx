@@ -181,7 +181,6 @@ export default function Overlay() {
     };
   }, []);
 
-  const progress = Math.round((status.transcribe_progress ?? 0) * 100);
   const panelTheme = resolvePanelTheme(iconPreference, systemTheme);
   const logoVariant = resolveLogoVariant(iconPreference, systemTheme);
   const bars = status.audio_spectrum.length >= 20 ? status.audio_spectrum.slice(0, 20) : Array(20).fill(0);
@@ -210,9 +209,7 @@ export default function Overlay() {
     : mode === "processing"
       ? {
           title: t("overlay.processing"),
-          hint: status.transcribe_progress == null
-            ? t(status.stt_provider === "local" ? "overlay.processingUnknown" : "overlay.processingCloudUnknown")
-            : t(status.stt_provider === "local" ? "overlay.processingHint" : "overlay.processingCloudHint", { progress }),
+          hint: t(status.stt_provider === "local" ? "overlay.processingUnknown" : "overlay.processingCloudUnknown"),
         }
       : mode === "success"
         ? { title: t("overlay.copied"), hint: t("overlay.copiedHint") }
@@ -226,10 +223,9 @@ export default function Overlay() {
         className={`overlay-logo ${voiceIntensity > 0.08 ? "is-talking" : ""}`}
         style={logoMotionStyle}
       >
-        <BrandLogo size={60} variant={logoVariant} />
+        <BrandLogo size={52} variant={logoVariant} />
       </div>
       <div className="overlay-copy" role="status" aria-live="polite">
-        <span className="overlay-brand">{t("brand.name")}</span>
         <strong>{copy.title}</strong>
         <span>{copy.hint}</span>
       </div>
@@ -237,13 +233,21 @@ export default function Overlay() {
         {mode === "recording" && (
           <div className="overlay-spectrum" aria-hidden="true">
             {bars.map((value, index) => (
-              <span key={index} style={{ height: `${Math.max(12, Math.min(100, Math.pow(Math.max(value, 0), 0.65) * 100))}%` }} />
+              <span
+                key={index}
+                style={{
+                  height: `${Math.max(12, Math.min(100, Math.pow(Math.max(value, 0), 0.65) * 100))}%`,
+                  animationDuration: `${1100 + index * 55}ms`,
+                  animationDelay: `${index * -65}ms`,
+                }}
+              />
             ))}
           </div>
         )}
         {mode === "processing" && (
-          <div className="overlay-progress" style={{ "--overlay-progress": `${progress * 3.6}deg` } as CSSProperties}>
-            <Icon name="waveform" size={18} />
+          <div className="overlay-progress" role="status" aria-label={t("overlay.processing")}>
+            <span className="overlay-spinner" aria-hidden="true" />
+            <Icon name="waveform" size={16} />
           </div>
         )}
         {mode === "success" && <span className="overlay-result success"><Icon name="check" size={22} /></span>}
