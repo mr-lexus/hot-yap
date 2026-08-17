@@ -8,11 +8,17 @@ import os
 import re
 import sys
 import time
+import traceback
 from pathlib import Path
 
 SUB = "ct2_int8_float16"
 
 CUDA_RUNTIME_DIRNAME = "cuda-runtime"
+
+# Handles returned by os.add_dll_directory(): the directory is removed from
+# the DLL search path when the handle is garbage collected, so keep them for
+# the lifetime of the process.
+_CUDA_RUNTIME_HANDLES = []
 
 # Prompt-conditioning strongly biases Whisper's output style: it teaches the
 # decoder to keep embedded English words in latin script instead of writing
@@ -76,12 +82,27 @@ def _prepare_cuda_runtime(models_root=None):
     runtime installed via `download_cuda_runtime` lives under the models
     directory and must be made visible to LoadLibrary before ctranslate2 uses
     it. No-op when the directory is absent (bundled or system runtime).
+
+    Two search-path mechanisms are used because ctranslate2 loads cuBLAS
+    lazily on the first encode via plain LoadLibrary:
+    - os.add_dll_directory() only applies to LoadLibraryEx calls that opt
+      into the user search paths; its handle MUST be kept alive or the entry
+      is dropped as soon as the return value is garbage collected.
+    - prepending the directory to PATH covers the default LoadLibrary search
+      order (application dir, system dirs, current dir, PATH).
     """
     if sys.platform != "win32" or not models_root:
         return
     runtime_dir = Path(models_root) / CUDA_RUNTIME_DIRNAME
-    if runtime_dir.is_dir():
-        os.add_dll_directory(str(runtime_dir))
+    if not runtime_dir.is_dir():
+        return
+    try:
+        _CUDA_RUNTIME_HANDLES.append(os.add_dll_directory(str(runtime_dir)))
+    except OSError as exc:
+        log(f"cannot add CUDA runtime dir to DLL search path: {exc}")
+    path = os.environ.get("PATH", "")
+    if str(runtime_dir) not in path.split(os.pathsep):
+        os.environ["PATH"] = str(runtime_dir) + os.pathsep + path
 
 
 def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, device="auto"):

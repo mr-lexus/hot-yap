@@ -845,10 +845,29 @@ async fn transcribe_recording(
             log::error!("transcription failed: {e}");
             // If the worker went unresponsive, kill and respawn it so the app
             // never stays stuck (the old process may still be crunching).
-            if local_transcription && e.contains("did not answer") {
-                log::warn!("transcription timed out; restarting the worker");
+            // Covers both a request timeout ("did not answer") and a broken
+            // protocol pipe ("closed the connection"/"not running"), which is
+            // what a PyInstaller onefile worker spawned from a GUI parent
+            // exhibits after a successful transcription.
+            let channel_broken = e.contains("did not answer")
+                || e.contains("closed the connection")
+                || e.contains("is not running")
+                || e.contains("Failed to write to worker");
+            if local_transcription && channel_broken {
+                log::warn!("worker channel broken; restarting the worker");
                 let _ = worker::kill(&app).await;
-                let _ = worker::start(&app).await;
+                if worker::start(&app).await.is_ok() {
+                    // The fresh worker has no model loaded; reload the
+                    // previously loaded one so the next dictation just works.
+                    let model_id = app
+                        .state::<AppState>()
+                        .lock()
+                        .current_model_id
+                        .clone();
+                    if let Some(model_id) = model_id {
+                        let _ = load_model(app.clone(), model_id, None).await;
+                    }
+                }
             }
             set(&app, |i| {
                 i.phase = Phase::Idle;

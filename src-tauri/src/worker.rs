@@ -29,6 +29,13 @@ pub struct Worker {
     pub alive: AtomicBool,
     generation: AtomicU64,
     child: Mutex<Option<Child>>,
+    /// OS process id of the spawned worker. Kept separately from `child`
+    /// because `spawn_watcher` takes the `Child` out of `worker.child` to
+    /// wait on it, which used to make `kill()` a no-op (restart could never
+    /// actually terminate a hung worker, so the old process kept holding the
+    /// model + VRAM while a fresh one failed to answer). Killed via
+    /// `taskkill /T` on Windows so the whole PyInstaller tree goes down.
+    pid: StdMutex<Option<u32>>,
     stdin: Mutex<Option<ChildStdin>>,
     pending: StdMutex<HashMap<u64, mpsc::UnboundedSender<WorkerMessage>>>,
     next_id: AtomicU64,
@@ -156,6 +163,7 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
                 alive: AtomicBool::new(true),
                 generation: AtomicU64::new(0),
                 child: Mutex::new(None),
+                pid: StdMutex::new(None),
                 stdin: Mutex::new(None),
                 pending: StdMutex::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
@@ -166,6 +174,7 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     };
     worker.alive.store(true, Ordering::SeqCst);
     worker.pending.lock().unwrap().clear();
+    *worker.pid.lock().unwrap() = child.id();
     *worker.stdin.lock().await = None;
     *worker.child.lock().await = Some(child);
     let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -212,27 +221,56 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
 fn spawn_stdout_reader(worker: Arc<Worker>, stdout: tokio::process::ChildStdout) {
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<WorkerMessage>(line) {
-                Ok(msg) => {
-                    if let Some(id) = msg.id {
-                        let mut pending = worker.pending.lock().unwrap();
-                        if let Some(tx) = pending.get(&id) {
-                            let _ = tx.send(msg.clone());
-                            if is_terminal(&msg) {
-                                pending.remove(&id);
+        let mut read_error = None;
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    match serde_json::from_str::<WorkerMessage>(line) {
+                        Ok(msg) => {
+                            if let Some(id) = msg.id {
+                                let mut pending = worker.pending.lock().unwrap();
+                                if let Some(tx) = pending.get(&id) {
+                                    let _ = tx.send(msg.clone());
+                                    if is_terminal(&msg) {
+                                        pending.remove(&id);
+                                    }
+                                }
                             }
                         }
+                        Err(e) => log::warn!("non-protocol line from worker stdout: {e}"),
                     }
                 }
-                Err(e) => log::warn!("non-protocol line from worker stdout: {e}"),
+                Ok(None) => break, // EOF: worker closed stdout or exited
+                Err(e) => {
+                    read_error = Some(e);
+                    break;
+                }
             }
         }
+        if let Some(e) = read_error {
+            log::warn!("worker stdout read error: {e}");
+        }
         log::info!("worker stdout closed");
+        // The worker's stdout is gone: the protocol is dead even if the
+        // process itself is still alive (observed with a PyInstaller onefile
+        // worker spawned from a GUI parent: python keeps running and printed
+        // its reply, but the pipe broke). Fail every pending request right
+        // away instead of letting the caller spin until its timeout.
+        worker.alive.store(false, Ordering::SeqCst);
+        let mut pending = worker.pending.lock().unwrap();
+        for (_, tx) in pending.drain() {
+            let _ = tx.send(WorkerMessage {
+                id: None,
+                ok: Some(false),
+                event: None,
+                error: Some("Worker closed the connection".to_string()),
+                payload: json!({}),
+            });
+        }
     });
 }
 
@@ -398,6 +436,28 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
     {
         let mut pending = worker.pending.lock().unwrap();
         pending.clear();
+    }
+    // Kill by OS pid first: `spawn_watcher` may have taken the `Child` out of
+    // `worker.child` to wait on it, so the handle below is not always
+    // available. taskkill /T terminates the whole PyInstaller tree
+    // (bootloader + python child), which a plain child.kill() would leave
+    // orphaned and holding the model + VRAM.
+    if let Some(pid) = *worker.pid.lock().unwrap() {
+        let mut command = if cfg!(windows) {
+            let mut c = std::process::Command::new("taskkill");
+            c.args(["/F", "/T", "/PID", &pid.to_string()]);
+            c
+        } else {
+            let mut c = std::process::Command::new("kill");
+            c.args(["-9", &pid.to_string()]);
+            c
+        };
+        match command.status() {
+            Ok(status) if status.success() => log::debug!("worker pid {pid} terminated"),
+            Ok(_) => log::debug!("worker pid {pid} already gone"),
+            Err(e) => log::warn!("failed to kill worker pid {pid}: {e}"),
+        }
+        *worker.pid.lock().unwrap() = None;
     }
     let mut child = worker.child.lock().await;
     if let Some(mut c) = child.take() {

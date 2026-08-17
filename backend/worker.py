@@ -61,7 +61,12 @@ def log(*a):
 def reply(req_id, payload):
     msg = dict(payload)
     msg["id"] = req_id
-    print(json.dumps(msg, ensure_ascii=False), flush=True)
+    try:
+        print(json.dumps(msg, ensure_ascii=False), flush=True)
+    except Exception as e:
+        # Never let a broken/closed stdout kill the worker loop; the Rust side
+        # treats the pipe as dead anyway and will restart us.
+        log(f"failed to send reply #{req_id}: {e}")
 
 
 def handle(name):
@@ -433,12 +438,9 @@ def cmd_verify_cuda_runtime(req):
 
     models_root = req.get("models_root")
     if models_root:
-        runtime_dir = _cuda_runtime_dir(models_root)
-        if runtime_dir.is_dir():
-            try:
-                os.add_dll_directory(str(runtime_dir))
-            except OSError as exc:
-                log(f"cannot add CUDA runtime dir to search path: {exc}")
+        from inference import _prepare_cuda_runtime
+
+        _prepare_cuda_runtime(models_root)
 
     details = {}
     for name in CUDA_RUNTIME_DLLS:
@@ -533,7 +535,9 @@ def cmd_download_cuda_runtime(req):
 
     failed = []
     try:
-        os.add_dll_directory(str(runtime_dir))
+        from inference import _prepare_cuda_runtime
+
+        _prepare_cuda_runtime(str(models_root))
     except OSError as exc:
         failed.append(f"cannot register runtime directory: {exc}")
     if not failed:
@@ -552,6 +556,16 @@ def cmd_download_cuda_runtime(req):
 
 
 def main():
+    # The protocol pipes must carry UTF-8 JSON: on a cp1251 system locale the
+    # default stdout encoding would be windows-1251, which Rust (always
+    # decoding UTF-8) would reject, and characters outside the codepage would
+    # raise UnicodeEncodeError mid-protocol. errors="replace" additionally
+    # guarantees a print can never take the process down.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     log(f"hotyap worker {VERSION} starting (pid={__import__('os').getpid()})")
     print(json.dumps({"event": "worker_ready", "version": VERSION}), flush=True)
     for line in sys.stdin:
