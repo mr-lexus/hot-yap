@@ -5,6 +5,12 @@
     "tagline": "Private speech-to-text for Russian and technical English",
     "windowTitle": "HotYap — Local RU/EN Dictation"
   },
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
   "theme": {
     "light": "Light",
     "dark": "Dark",

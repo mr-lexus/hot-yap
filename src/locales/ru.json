@@ -1,9 +1,15 @@
 {
   "brand": {
-    "name": "Горячий Лай",
-    "kicker": "ГОРЯЧИЙ ЛАЙ / ЛОКАЛЬНОЕ ASR",
+    "name": "HotYap",
+    "kicker": "HOTYAP / ЛОКАЛЬНОЕ ASR",
     "tagline": "Приватная диктовка для русской речи и английских терминов",
-    "windowTitle": "Горячий Лай — локальная RU/EN диктовка"
+    "windowTitle": "HotYap — локальная RU/EN диктовка"
+  },
+  "window": {
+    "minimize": "Свернуть",
+    "maximize": "Развернуть",
+    "restore": "Восстановить",
+    "close": "Закрыть"
   },
   "theme": {
     "light": "Светлая",

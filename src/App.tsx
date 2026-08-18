@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+﻿import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -7,6 +7,7 @@ import { type CudaRuntimeReport, type StatusReport } from "./types";
 import ModelManager from "./ModelManager";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icons";
+import TitleBar from "./TitleBar";
 import SpectrumAnalyzer from "./SpectrumAnalyzer";
 import TranscriptionProgress from "./TranscriptionProgress";
 import SettingsModal, { providerName } from "./SettingsModal";
@@ -211,7 +212,7 @@ export default function App() {
   const currentModel = status.models.find(m => m.id === status.current_model_id);
   const cloudTranscription = status.stt_provider !== "local";
   const activeTranscriber = cloudTranscription
-    ? `${providerName(status.stt_provider)}${status.stt_model ? ` · ${status.stt_model}` : ""}`
+    ? `${providerName(status.stt_provider)}${status.stt_model ? ` В· ${status.stt_model}` : ""}`
     : currentModel?.name ?? t("model.none");
   const displayedEngineStatus = status.stt_ready ? "ready" : cloudTranscription ? "stopped" : status.engine_status;
   const hasDownloadedModel = status.models.some((model) => model.downloaded);
@@ -300,8 +301,10 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header className="topbar">
+    <>
+      <TitleBar theme={theme} />
+      <div className="app">
+        <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><BrandLogo size={56} variant={theme === "dark" ? "light" : "dark"} /></div>
           <div>
@@ -336,7 +339,7 @@ export default function App() {
         </div>
       </header>
 
-      <section className="model-strip">
+        <section className="model-strip">
         <div className="model-strip-icon"><Icon name={cloudTranscription ? "waveform" : "layers"} size={16} /></div>
         <div className="model-strip-copy">
           <span className="strip-label">{t("provider.active")}</span>
@@ -388,7 +391,7 @@ export default function App() {
         </section>
       )}
 
-      <div className="workspace">
+        <div className="workspace">
         <main className="main-column">
           <section className="panel recording-panel">
             <div className="section-header recording-header">
@@ -498,7 +501,7 @@ export default function App() {
               {cloudTranscription
                 ? activeTranscriber
                 : status.device
-                ? `${status.device === "cuda" ? "CUDA" : "CPU"}${status.compute_type ? ` · ${status.compute_type}` : ""}`
+                ? `${status.device === "cuda" ? "CUDA" : "CPU"}${status.compute_type ? ` В· ${status.compute_type}` : ""}`
                 : status.worker_alive ? t("engine.workerOnline") : t("engine.workerOffline")}
             </p>
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
@@ -546,9 +549,9 @@ export default function App() {
         </aside>
       </div>
 
-      <footer className="privacy">{cloudTranscription ? t("privacyCloud", { provider: providerName(status.stt_provider) }) : t("privacy")}</footer>
+        <footer className="privacy">{cloudTranscription ? t("privacyCloud", { provider: providerName(status.stt_provider) }) : t("privacy")}</footer>
 
-      <ModelManager
+        <ModelManager
         open={modelManagerOpen}
         onClose={() => setModelManagerOpen(false)}
         status={status}
@@ -562,7 +565,7 @@ export default function App() {
           }
         }}
       />
-      <SettingsModal
+        <SettingsModal
         open={settingsOpen}
         accent={accent}
         iconPreference={iconPreference}
@@ -574,6 +577,7 @@ export default function App() {
           setStatus(next);
         }}
       />
-    </div>
+        </div>
+    </>
   );
 }
