@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -136,6 +138,16 @@ pub fn is_alive(app: &AppHandle) -> bool {
 pub async fn start(app: &AppHandle) -> Result<(), String> {
     let launch = worker_launch()?;
     let mut command = tokio::process::Command::new(&launch.program);
+    #[cfg(windows)]
+    {
+        // CREATE_NO_WINDOW: the worker is a console-subsystem process
+        // (python.exe in dev, or the PyInstaller sidecar in release).
+        // Spawned from a GUI parent without flags it would allocate a
+        // visible terminal window; this keeps it running in the background.
+        // The piped stdin/stdout/stderr are unaffected, so the JSONL
+        // protocol still works.
+        command.creation_flags(0x0800_0000);
+    }
     if let Some(script) = &launch.script {
         command.arg(script);
     }
@@ -478,6 +490,9 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
         let mut command = if cfg!(windows) {
             let mut c = std::process::Command::new("taskkill");
             c.args(["/F", "/T", "/PID", &pid.to_string()]);
+            // CREATE_NO_WINDOW: this short call would otherwise flash a
+            // terminal window every time the worker is killed/restarted.
+            c.creation_flags(0x0800_0000);
             c
         } else {
             let mut c = std::process::Command::new("kill");
