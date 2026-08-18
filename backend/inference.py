@@ -85,15 +85,20 @@ def _prepare_cuda_runtime(models_root=None):
 
     Two search-path mechanisms are used because ctranslate2 loads cuBLAS
     lazily on the first encode via plain LoadLibrary:
-    - os.add_dll_directory() only applies to LoadLibraryEx calls that opt
-      into the user search paths; its handle MUST be kept alive or the entry
-      is dropped as soon as the return value is garbage collected.
+    - os.add_dll_directory() adds the directory to the DLL search path for
+      LoadLibraryEx (its handle MUST be kept alive or the entry is dropped as
+      soon as the return value is garbage collected).
     - prepending the directory to PATH covers the default LoadLibrary search
       order (application dir, system dirs, current dir, PATH).
+
+    The directory must be an ABSOLUTE path: AddDllDirectoryW rejects relative
+    paths with ERROR_INVALID_PARAMETER, and PATH modifications are ignored by
+    LoadLibraryEx in a PyInstaller-frozen process, so neither fallback works
+    when the path is relative.
     """
     if sys.platform != "win32" or not models_root:
         return
-    runtime_dir = Path(models_root) / CUDA_RUNTIME_DIRNAME
+    runtime_dir = (Path(models_root) / CUDA_RUNTIME_DIRNAME).resolve()
     if not runtime_dir.is_dir():
         return
     try:

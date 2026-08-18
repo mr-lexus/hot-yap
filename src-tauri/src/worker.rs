@@ -492,6 +492,7 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
             c.args(["/F", "/T", "/PID", &pid.to_string()]);
             // CREATE_NO_WINDOW: this short call would otherwise flash a
             // terminal window every time the worker is killed/restarted.
+            #[cfg(windows)]
             c.creation_flags(0x0800_0000);
             c
         } else {
