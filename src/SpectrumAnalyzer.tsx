@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface SpectrumAnalyzerProps {
   audioLevel: number;
   spectrum: number[];
@@ -11,7 +13,7 @@ export default function SpectrumAnalyzer({ audioLevel, spectrum, isRecording }: 
   const level = isRecording ? Math.min(1, audioLevel * 4) : 0;
 
   return (
-    <div className="spectrum-analyzer">
+    <div className={`spectrum-analyzer ${isRecording ? "" : "idle"}`}>
       <div className="spectrum-bars" aria-label="Live microphone activity">
         {bars.slice(0, BAR_COUNT).map((value, index) => {
           const height = Math.max(3, Math.min(100, Math.pow(Math.max(value, 0), 0.65) * 100));
@@ -29,4 +31,4 @@ export default function SpectrumAnalyzer({ audioLevel, spectrum, isRecording }: 
     </div>
   );
 }
-import { useTranslation } from "react-i18next";
+

@@ -87,7 +87,7 @@
   },
   "progress": {
     "transcribing": "Transcribing",
-    "elapsed": "{{time}} elapsed"
+    "elapsed": "· {{time}}"
   },
   "privacy": "No cloud · No history · No telemetry",
   "privacyCloud": "Cloud transcription via {{provider}} · No local history · No telemetry",

@@ -12,6 +12,7 @@ import SpectrumAnalyzer from "./SpectrumAnalyzer";
 import TranscriptionProgress from "./TranscriptionProgress";
 import SettingsModal, { providerName } from "./SettingsModal";
 import { applyAppearance, applyIconPreference, savedAccent, savedIconPreference, savedTheme, type Accent, type IconPreference, type Theme } from "./appearance";
+import { CustomSelect } from "./CustomSelect";
 import "./app.css";
 
 const DEFAULT_STATUS: StatusReport = {
@@ -306,7 +307,7 @@ export default function App() {
       <div className="app">
         <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark"><BrandLogo size={56} variant={theme === "dark" ? "light" : "dark"} /></div>
+          <div className="brand-mark"><BrandLogo size={50} variant={theme === "dark" ? "light" : "dark"} /></div>
           <div>
             <p className="eyebrow">{t("brand.kicker")}</p>
             <h1>{t("brand.name")}</h1>
@@ -402,57 +403,55 @@ export default function App() {
                   <p className="mic-line">{status.mic_name ? status.mic_name : t("session.defaultInput")}</p>
                 </div>
               </div>
+              <button
+                className={`btn btn-record ${recording && !releasingToTalk ? "recording" : ""}`}
+                disabled={!canRecord && !holdingToTalk}
+                onPointerDown={(event) => {
+                  if (event.currentTarget.disabled) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  pressToTalk();
+                }}
+                onPointerUp={releaseToTalk}
+                onPointerCancel={releaseToTalk}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    pressToTalk();
+                  }
+                }}
+                onKeyUp={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    releaseToTalk();
+                  }
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                <span className={`record-icon ${transcribing || releasingToTalk ? "spinning" : ""}`}>
+                  <Icon name={transcribing || releasingToTalk ? "refresh" : "mic"} size={18} />
+                </span>
+                {transcribing || releasingToTalk
+                  ? t("dictation.transcribing")
+                  : recording
+                    ? t("dictation.release")
+                    : t("dictation.hold")}
+              </button>
               <p className={`phase phase-${status.phase}`}>
                 {recording && t("dictation.recording")}
-                {transcribing && t("dictation.transcribing")}
                 {!recording && !transcribing && (canRecord ? t("dictation.ready") : !cloudTranscription && status.engine_status === "loading" ? t("dictation.preparing") : cloudTranscription ? t("dictation.providerRequired") : t("dictation.modelRequired"))}
               </p>
             </div>
-            {recording && (
-              <SpectrumAnalyzer
-                audioLevel={status.audio_level}
-                spectrum={status.audio_spectrum}
-                isRecording={recording}
-              />
-            )}
+            <SpectrumAnalyzer
+              audioLevel={status.audio_level}
+              spectrum={status.audio_spectrum}
+              isRecording={recording}
+            />
 
-            <button
-              className={`btn btn-record ${recording && !releasingToTalk ? "recording" : ""}`}
-              disabled={!canRecord && !holdingToTalk}
-              onPointerDown={(event) => {
-                if (event.currentTarget.disabled) return;
-                event.currentTarget.setPointerCapture(event.pointerId);
-                pressToTalk();
-              }}
-              onPointerUp={releaseToTalk}
-              onPointerCancel={releaseToTalk}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  pressToTalk();
-                }
-              }}
-              onKeyUp={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  releaseToTalk();
-                }
-              }}
-              onContextMenu={(event) => event.preventDefault()}
-            >
-              <span className={`record-icon ${transcribing || releasingToTalk ? "spinning" : ""}`}>
-                <Icon name={transcribing || releasingToTalk ? "refresh" : "mic"} size={18} />
-              </span>
-              {transcribing || releasingToTalk
-                ? t("dictation.transcribing")
-                : recording
-                  ? t("dictation.release")
-                  : t("dictation.hold")}
-            </button>
             <div className="hotkey-row">
               <span className="hotkey-value"><Icon name="keyboard" size={15} /><span className="setting-label">{t("dictation.shortcut")}</span> {hotkeyParts(status.hotkey).map((part, index) => (
                 <span key={`${part}-${index}`}>{index > 0 && " + "}<kbd>{part}</kbd></span>
               ))}</span>
+              <TranscriptionProgress status={status} />
               <button
                 ref={(element) => {
                   if (capturingHotkey) element?.focus();
@@ -467,8 +466,6 @@ export default function App() {
             </div>
             {!status.hotkey_registered && <p className="warn-msg">{t("dictation.hotkeyMissing")}{status.hotkey_warning ? `: ${status.hotkey_warning}` : ""}</p>}
           </section>
-
-          <TranscriptionProgress status={status} />
 
           {(status.last_error || error) && (
             <section className="card card-error"><p className="error-msg">{error ?? status.last_error}</p></section>
@@ -507,25 +504,21 @@ export default function App() {
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
             {!cloudTranscription && !status.worker_alive && <p className="error-msg">{t("engine.workerOffline")}</p>}
             {!cloudTranscription && currentModel?.downloaded && (
-              <div className="device-select-inline" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", marginBottom: "8px" }}>
-                <span style={{ fontSize: "12px", opacity: 0.8 }}>{t("settings.deviceSelect")}:</span>
-                <select
-                  className="device-selector"
-                  disabled={busy || status.engine_status === "loading" || !status.worker_alive}
-                  value={status.local_device || "auto"}
-                  onChange={(e) => {
-                    const nextDev = e.target.value;
-                    if (currentModel) {
-                      run(() => invoke("load_model", { model_id: currentModel.id, device: nextDev }));
-                    }
-                  }}
-                  style={{ fontSize: "12px", padding: "2px 6px", borderRadius: "4px", background: "var(--bg-card)", color: "inherit", border: "1px solid var(--border)" }}
-                >
-                  <option value="auto">Auto</option>
-                  <option value="cuda">CUDA (GPU)</option>
-                  <option value="cpu">CPU</option>
-                </select>
-              </div>
+              <CustomSelect
+                label={t("settings.deviceSelect")}
+                value={status.local_device || "auto"}
+                onChange={(nextDev) => {
+                  if (currentModel) {
+                    run(() => invoke("load_model", { model_id: currentModel.id, device: nextDev }));
+                  }
+                }}
+                disabled={busy || status.engine_status === "loading" || !status.worker_alive}
+                options={[
+                  { value: "auto", label: t("models.auto") },
+                  { value: "cuda", label: t("models.cuda") },
+                  { value: "cpu", label: t("models.cpu") },
+                ]}
+              />
             )}
             <div className="actions">
               {!cloudTranscription && currentModel?.downloaded && status.engine_status !== "ready" && (

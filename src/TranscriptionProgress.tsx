@@ -20,12 +20,10 @@ export default function TranscriptionProgress({ status }: TranscriptionProgressP
   };
 
   return (
-    <section className="card card-transcribing">
-      <div className="transcribe-heading">
-        <span className="progress-spinner"><Icon name="refresh" size={14} /></span>
-        <strong>{t("progress.transcribing")}</strong>
-        <span>{t("progress.elapsed", { time: formatTime(elapsed) })}</span>
-      </div>
-    </section>
+    <span className="transcribe-heading">
+      <span className="progress-spinner"><Icon name="refresh" size={13} /></span>
+      <span>{t("progress.transcribing")}</span>
+      <span>{t("progress.elapsed", { time: formatTime(elapsed) })}</span>
+    </span>
   );
 }
