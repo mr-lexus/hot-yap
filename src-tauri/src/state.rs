@@ -140,6 +140,9 @@ pub struct AppStateInner {
     pub provider_settings_path: PathBuf,
     pub provider_settings: crate::providers::ProviderSettings,
     pub cuda_runtime: CudaRuntimeReport,
+    /// Set once the first window close starts worker teardown; guards against
+    /// re-entrant CloseRequested events during app exit.
+    pub closing: bool,
 }
 
 pub struct AppState(pub Mutex<AppStateInner>);

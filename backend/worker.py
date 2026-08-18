@@ -580,6 +580,19 @@ def main():
         rid = req.get("id")
         cmd = req.get("command")
         if cmd == "shutdown":
+            # Drop the model BEFORE acknowledging. On Windows, interpreter
+            # teardown with a live CTranslate2/CUDA model is where workers
+            # crash or hang (VRAM release at exit). Freeing it here keeps the
+            # process exit short and clean, and shrinks the window in which
+            # the worker is alive but no longer reads stdin.
+            if state.get("model") is not None:
+                try:
+                    state["model"] = None
+                    import gc
+
+                    gc.collect()
+                except Exception:
+                    log("model teardown during shutdown failed; continuing")
             reply(rid, {"ok": True, "event": "shutdown_ack"})
             log("shutdown requested, exiting")
             break

@@ -176,7 +176,19 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     worker.pending.lock().unwrap().clear();
     *worker.pid.lock().unwrap() = child.id();
     *worker.stdin.lock().await = None;
-    *worker.child.lock().await = Some(child);
+    // A previous watcher may still hold the child lock if its process is
+    // wedged and refuses to die; never hang a restart on that.
+    match tokio::time::timeout(Duration::from_secs(5), worker.child.lock()).await {
+        Ok(mut guard) => {
+            *guard = Some(child);
+        }
+        Err(_) => {
+            let _ = kill(app).await;
+            return Err(
+                "previous worker process did not die; cannot start a new one".to_string(),
+            );
+        }
+    }
     let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     let (stdout, stderr, stdin) = {
@@ -285,12 +297,17 @@ fn spawn_stderr_reader(stderr: tokio::process::ChildStderr) {
 
 fn spawn_watcher(app: AppHandle, worker: Arc<Worker>, generation: u64) {
     tauri::async_runtime::spawn(async move {
-        let status = {
-            let mut child = worker.child.lock().await;
-            match child.take() {
-                Some(mut c) => Some(c.wait().await),
-                None => None,
-            }
+        // Take the child out and drop the lock BEFORE waiting. Holding the
+        // mutex across wait() would block any other worker.child.lock() —
+        // including kill() and therefore app shutdown — for the entire
+        // lifetime of the worker process.
+        let child = {
+            let mut guard = worker.child.lock().await;
+            guard.take()
+        };
+        let status = match child {
+            Some(mut c) => Some(c.wait().await),
+            None => None,
         };
         if status.is_none() {
             return;
@@ -337,9 +354,22 @@ pub async fn request(
             Some(mut s) => {
                 let mut buf = line.to_string();
                 buf.push('\n');
-                let res = match s.write_all(buf.as_bytes()).await {
-                    Ok(_) => s.flush().await,
-                    Err(e) => Err(e),
+                // Writing must be bounded too: if the worker stopped reading
+                // stdin (e.g. stuck in interpreter teardown after
+                // shutdown_ack), a full pipe buffer would block this request
+                // forever, past every response timeout.
+                let write_timeout = timeout.min(Duration::from_secs(5));
+                let res = match tokio::time::timeout(write_timeout, async {
+                    s.write_all(buf.as_bytes()).await?;
+                    s.flush().await
+                })
+                .await
+                {
+                    Ok(r) => r,
+                    Err(_) => Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out writing to worker",
+                    )),
                 };
                 *worker.stdin.lock().await = Some(s);
                 res
@@ -409,6 +439,7 @@ pub async fn request(
 }
 
 /// Ask the worker to shut down, wait briefly, then kill it if needed.
+/// Bounded: every step has a timeout so app shutdown can never wedge here.
 pub async fn shutdown(app: &AppHandle) {
     let worker = match app.try_state::<Arc<Worker>>() {
         Some(w) => w,
@@ -423,7 +454,7 @@ pub async fn shutdown(app: &AppHandle) {
         )
         .await;
     }
-    let _ = kill(app).await;
+    let _ = tokio::time::timeout(Duration::from_secs(10), kill(app)).await;
     log::info!("worker shutdown complete");
 }
 
@@ -442,7 +473,8 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
     // available. taskkill /T terminates the whole PyInstaller tree
     // (bootloader + python child), which a plain child.kill() would leave
     // orphaned and holding the model + VRAM.
-    if let Some(pid) = *worker.pid.lock().unwrap() {
+    let pid = worker.pid.lock().unwrap().take();
+    if let Some(pid) = pid {
         let mut command = if cfg!(windows) {
             let mut c = std::process::Command::new("taskkill");
             c.args(["/F", "/T", "/PID", &pid.to_string()]);
@@ -452,17 +484,27 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
             c.args(["-9", &pid.to_string()]);
             c
         };
-        match command.status() {
-            Ok(status) if status.success() => log::debug!("worker pid {pid} terminated"),
-            Ok(_) => log::debug!("worker pid {pid} already gone"),
-            Err(e) => log::warn!("failed to kill worker pid {pid}: {e}"),
+        // taskkill is a short synchronous call; run it off the async runtime.
+        match tokio::task::spawn_blocking(move || command.status()).await {
+            Ok(Ok(status)) if status.success() => log::debug!("worker pid {pid} terminated"),
+            Ok(Ok(_)) => log::debug!("worker pid {pid} already gone"),
+            Ok(Err(e)) => log::warn!("failed to kill worker pid {pid}: {e}"),
+            Err(e) => log::warn!("kill task failed for worker pid {pid}: {e}"),
         }
-        *worker.pid.lock().unwrap() = None;
     }
-    let mut child = worker.child.lock().await;
-    if let Some(mut c) = child.take() {
-        let _ = c.kill().await;
-        let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
+    // The watcher normally drops the child lock as soon as the process dies,
+    // but if the process refuses to die (wedged CUDA/CTranslate2 teardown,
+    // stale pid, ...) kill() must not block app shutdown forever.
+    match tokio::time::timeout(Duration::from_secs(5), worker.child.lock()).await {
+        Ok(mut guard) => {
+            if let Some(mut c) = guard.take() {
+                let _ = c.kill().await;
+                let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
+            }
+        }
+        Err(_) => {
+            log::warn!("worker child lock timed out in kill(); watcher still owns it");
+        }
     }
     Ok(())
 }

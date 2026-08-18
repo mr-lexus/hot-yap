@@ -344,6 +344,7 @@ pub fn run() {
                 provider_settings_path,
                 provider_settings,
                 cuda_runtime: state::CudaRuntimeReport::default(),
+                closing: false,
             })));
 
             // Start the Python worker asynchronously; the app still opens if it fails.
@@ -453,9 +454,29 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle().clone();
+                // Guard against re-entrant close requests (second window such
+                // as the PTT overlay, or a close while the shutdown task is
+                // already running): only the first one starts the teardown,
+                // the rest let the window close without prevent_close.
+                let already_closing = {
+                    let st = app.state::<AppState>();
+                    let mut inner = st.lock();
+                    if inner.closing {
+                        true
+                    } else {
+                        inner.closing = true;
+                        false
+                    }
+                };
+                if already_closing {
+                    return;
+                }
                 api.prevent_close();
                 tauri::async_runtime::spawn(async move {
-                    worker::shutdown(&app).await;
+                    // Bound the whole teardown so app.exit(0) always runs; a
+                    // wedged worker must never leave the app unclosable.
+                    let _ =
+                        tokio::time::timeout(Duration::from_secs(15), worker::shutdown(&app)).await;
                     app.exit(0);
                 });
             }

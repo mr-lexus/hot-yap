@@ -448,6 +448,21 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
+        // The worker may have exited (crash, previous unload): bring it back
+        // before sending the load request, otherwise the request fails with
+        // "Python worker is not running".
+        if !worker::is_alive(&app2) {
+            if let Err(e) = worker::start(&app2).await {
+                log::error!("worker restart before load failed: {e}");
+                set(&app2, |i| {
+                    i.engine_status = EngineStatus::Error;
+                    i.engine_error = Some(e.clone());
+                    i.last_error = Some(e);
+                });
+                emit_status(&app2);
+                return;
+            }
+        }
         let dir = worker::model_dir(&app2).join(&model_id);
         let result = request(
             &app2,
@@ -527,16 +542,45 @@ pub async fn unload_model(app: AppHandle) -> Result<(), String> {
 
     emit_status(&app);
 
-    // Send shutdown to worker to unload model
-    if let Some(_model_id) = current_model {
-        let _ = request(
-            &app,
-            &*app.state::<Arc<worker::Worker>>(),
-            json!({"command": "shutdown"}),
-            Duration::from_secs(3),
-        ).await;
+    // Shut the worker down so the model (and VRAM) is released, wait for the
+    // old process to actually exit, then start a fresh worker. Without the
+    // restart the engine stays permanently dead: `load_model` cannot talk to
+    // a stopped worker and the UI blocks the Load button on worker_alive.
+    if current_model.is_some() {
+        if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
+            if worker_arc.alive.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = request(
+                    &app,
+                    &worker_arc,
+                    json!({"command": "shutdown"}),
+                    Duration::from_secs(3),
+                )
+                .await;
+            }
+            // The worker replies shutdown_ack BEFORE the model teardown
+            // finishes. Wait for the process to actually die so a subsequent
+            // load_model does not hit a half-dead worker whose stdin loop is
+            // already gone (which used to hang the load request for minutes).
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while worker_arc.alive.load(std::sync::atomic::Ordering::SeqCst)
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+        let _ = worker::kill(&app).await;
+        if let Err(e) = worker::start(&app).await {
+            set(&app, |i| {
+                i.engine_status = EngineStatus::Error;
+                i.engine_error = Some(e.clone());
+                i.last_error = Some(e.clone());
+            });
+            emit_status(&app);
+            return Err(format!("Worker failed to restart after model unload: {e}"));
+        }
     }
 
+    emit_status(&app);
     Ok(())
 }
 
