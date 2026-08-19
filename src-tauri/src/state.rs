@@ -43,6 +43,9 @@ pub enum ModelTier {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub struct CudaRuntimeReport {
+    /// Whether the runtime availability has been verified by the worker.
+    /// Until this is true the UI must not show the "CUDA unavailable" banner.
+    pub checked: bool,
     /// Whether the NVIDIA driver (nvcuda.dll) is present and a GPU is usable.
     pub gpu_available: bool,
     /// Whether every required cuBLAS DLL could be loaded.

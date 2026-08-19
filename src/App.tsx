@@ -44,6 +44,7 @@ const DEFAULT_STATUS: StatusReport = {
   text_provider: "none",
   local_device: "auto",
   cuda_runtime: {
+    checked: false,
     gpu_available: false,
     runtime_ok: true,
     missing: [],
@@ -375,22 +376,7 @@ export default function App() {
         </div>
       </header>
 
-        <section className="model-strip">
-        <div className="model-strip-icon"><Icon name={cloudTranscription ? "waveform" : "layers"} size={16} /></div>
-        <div className="model-strip-copy">
-          <span className="strip-label">{t("provider.active")}</span>
-          <strong>{activeTranscriber}</strong>
-        </div>
-        <span className={`model-strip-status ${status.stt_ready ? "ready" : !cloudTranscription && status.model_status === "error" ? "error" : !cloudTranscription && status.model_status === "downloading" ? "working" : ""}`}>
-          <span className="status-dot" />{status.stt_ready ? t("model.ready") : cloudTranscription ? t("provider.setupRequired") : modelActivity}
-        </span>
-        <button className="btn btn-secondary btn-sm" onClick={() => cloudTranscription ? setSettingsOpen(true) : setModelManagerOpen(true)}>
-          <Icon name="sliders" size={14} />
-          {cloudTranscription ? t("settings.button") : t("model.manage")}
-        </button>
-      </section>
-
-      {!cloudTranscription && !status.cuda_runtime.runtime_ok && (
+      {!cloudTranscription && status.cuda_runtime.checked && !status.cuda_runtime.runtime_ok && (
         <section className="card card-warning cuda-banner">
           <div className="cuda-banner-copy">
             <p className="warn-msg">{status.cuda_runtime.missing.length > 0 ? t("cuda.banner") : status.cuda_runtime.error ?? t("cuda.banner")}</p>
@@ -430,14 +416,23 @@ export default function App() {
         <div className="workspace">
         <main className="main-column">
           <section className="panel recording-panel">
-            <div className="section-header recording-header">
+            <div className="section-header">
               <div className="panel-title-lockup">
-                <span className="panel-icon"><Icon name="mic" size={16} /></span>
-                <div>
-                  <h2>{t("dictation.title")}</h2>
-                  <p className="mic-line">{status.mic_name ? status.mic_name : t("session.defaultInput")}</p>
-                </div>
+                <span className="panel-icon"><Icon name="mic" size={15} /></span>
+                <h2>{t("dictation.title")}</h2>
               </div>
+              <TranscriptionProgress status={status} onCancel={cancelTranscription} />
+              <span className={`phase-badge ${recording ? "recording" : transcribing ? "transcribing" : canRecord ? "ready" : ""}`}>
+                {recording ? t("dictation.recording")
+                  : transcribing ? t("dictation.transcribing")
+                  : canRecord ? t("dictation.ready")
+                  : !cloudTranscription && status.engine_status === "loading" ? t("dictation.preparing")
+                  : cloudTranscription ? t("dictation.providerRequired")
+                  : t("dictation.modelRequired")}
+              </span>
+            </div>
+
+            <div className="recording-body">
               <button
                 className={`btn btn-record ${recording && !releasingToTalk ? "recording" : ""}`}
                 disabled={!canRecord && !holdingToTalk}
@@ -465,28 +460,29 @@ export default function App() {
                 <span className={`record-icon ${transcribing || releasingToTalk ? "spinning" : ""}`}>
                   <Icon name={transcribing || releasingToTalk ? "refresh" : "mic"} size={18} />
                 </span>
-                {transcribing || releasingToTalk
-                  ? t("dictation.transcribing")
-                  : recording
-                    ? t("dictation.release")
-                    : t("dictation.hold")}
+                <span className="btn-record-label">
+                  {transcribing || releasingToTalk
+                    ? t("dictation.transcribing")
+                    : recording
+                      ? t("dictation.release")
+                      : t("dictation.hold")}
+                </span>
               </button>
-              <p className={`phase phase-${status.phase}`}>
-                {recording && t("dictation.recording")}
-                {!recording && !transcribing && (canRecord ? t("dictation.ready") : !cloudTranscription && status.engine_status === "loading" ? t("dictation.preparing") : cloudTranscription ? t("dictation.providerRequired") : t("dictation.modelRequired"))}
-              </p>
+
+              <SpectrumAnalyzer
+                audioLevel={status.audio_level}
+                spectrum={status.audio_spectrum}
+                isRecording={recording}
+              />
             </div>
-            <SpectrumAnalyzer
-              audioLevel={status.audio_level}
-              spectrum={status.audio_spectrum}
-              isRecording={recording}
-            />
 
             <div className="hotkey-row">
-              <span className="hotkey-value"><Icon name="keyboard" size={15} /><span className="setting-label">{t("dictation.shortcut")}</span> {hotkeyParts(status.hotkey).map((part, index) => (
-                <span key={`${part}-${index}`}>{index > 0 && " + "}<kbd>{part}</kbd></span>
-              ))}</span>
-              <TranscriptionProgress status={status} onCancel={cancelTranscription} />
+              <span className="hotkey-value">
+                <Icon name="keyboard" size={15} />
+                {hotkeyParts(status.hotkey).map((part, index) => (
+                  <span key={`${part}-${index}`}>{index > 0 && " + "}<kbd>{part}</kbd></span>
+                ))}
+              </span>
               <button
                 ref={(element) => {
                   if (capturingHotkey) element?.focus();
@@ -526,6 +522,28 @@ export default function App() {
         </main>
 
         <aside className="details-column">
+          <section className="panel speech-panel">
+            <div className="section-header">
+              <div className="panel-title-lockup">
+                <span className="panel-icon"><Icon name={cloudTranscription ? "waveform" : "layers"} size={15} /></span>
+                <h2>{t("provider.active")}</h2>
+              </div>
+              <span className={`mini-status ${status.stt_ready ? "ready" : !cloudTranscription && status.model_status === "error" ? "error" : !cloudTranscription && status.model_status === "downloading" ? "loading" : ""}`}>
+                {status.stt_ready ? t("model.ready") : cloudTranscription ? t("provider.setupRequired") : modelActivity}
+              </span>
+            </div>
+            <p className="engine-detail">
+              <span className={`dot ${status.stt_ready ? "dot-engine-ready" : !cloudTranscription && status.model_status === "error" ? "dot-engine-error" : "dot-engine-loading"}`} />
+              {activeTranscriber}
+            </p>
+            <div className="actions">
+              <button className="btn btn-secondary btn-sm" onClick={() => cloudTranscription ? setSettingsOpen(true) : setModelManagerOpen(true)}>
+                <Icon name="sliders" size={13} />
+                {cloudTranscription ? t("settings.button") : t("model.manage")}
+              </button>
+            </div>
+          </section>
+
           <section className="panel engine-panel">
             <div className="section-header"><div className="panel-title-lockup"><span className="panel-icon"><Icon name={cloudTranscription ? "waveform" : "cpu"} size={15} /></span><h2>{cloudTranscription ? t("provider.title") : t("engine.title")}</h2></div><span className={`mini-status ${displayedEngineStatus}`}>{status.stt_ready ? t("engineStatus.ready") : cloudTranscription ? t("provider.notConfigured") : t(`engineStatus.${status.engine_status}`)}</span></div>
             <p className="engine-detail">

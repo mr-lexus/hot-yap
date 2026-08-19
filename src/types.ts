@@ -25,6 +25,7 @@ export interface ModelInfo {
 }
 
 export interface CudaRuntimeReport {
+  checked: boolean;
   gpu_available: boolean;
   runtime_ok: boolean;
   missing: string[];

@@ -67,6 +67,7 @@ pub async fn check_cuda_runtime(app: AppHandle) -> Result<crate::state::CudaRunt
 
     set(&app, |i| {
         i.cuda_runtime = crate::state::CudaRuntimeReport {
+            checked: true,
             gpu_available,
             runtime_ok,
             missing,
@@ -120,6 +121,7 @@ pub async fn install_cuda_runtime(app: AppHandle) -> Result<(), String> {
                 log::info!("CUDA runtime download finished; missing: {missing:?}");
                 set(&app2, |i| {
                     i.cuda_runtime.progress = None;
+                    i.cuda_runtime.checked = true;
                     i.cuda_runtime.missing = missing.clone();
                     i.cuda_runtime.runtime_ok = missing.is_empty();
                     if missing.is_empty() {

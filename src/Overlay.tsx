@@ -55,6 +55,7 @@ const EMPTY_STATUS: StatusReport = {
   text_provider: "none",
   local_device: "auto",
   cuda_runtime: {
+    checked: false,
     gpu_available: false,
     runtime_ok: true,
     missing: [],

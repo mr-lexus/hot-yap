@@ -255,16 +255,15 @@ export default function SettingsModal({ open, accent, iconPreference, onAccentCh
             </div>
             {settings ? (
               <>
-                <label className="settings-field settings-provider-select">
-                  <span>{t("settings.provider")}</span>
-                  <select disabled={saving} value={settings.stt_provider} onChange={(event) => { setSettings({ ...settings, stt_provider: event.target.value }); setSaved(false); }}>
-                    {STT_PROVIDERS.map((provider) => <option key={provider} value={provider}>{displayProviderName(provider)}</option>)}
-                  </select>
-                </label>
-                {settings.stt_provider === "local" ? (
-                  <>
-                    <p className="settings-note"><Icon name="lock" size={14} />{t("settings.localHint")}</p>
-                    <label className="settings-field settings-provider-select" style={{ marginTop: "12px" }}>
+                <div className="settings-provider-row">
+                  <label className="settings-field">
+                    <span>{t("settings.provider")}</span>
+                    <select disabled={saving} value={settings.stt_provider} onChange={(event) => { setSettings({ ...settings, stt_provider: event.target.value }); setSaved(false); }}>
+                      {STT_PROVIDERS.map((provider) => <option key={provider} value={provider}>{displayProviderName(provider)}</option>)}
+                    </select>
+                  </label>
+                  {settings.stt_provider === "local" && (
+                    <label className="settings-field">
                       <span>{t("settings.deviceSelect")}</span>
                       <select
                         disabled={saving}
@@ -279,7 +278,10 @@ export default function SettingsModal({ open, accent, iconPreference, onAccentCh
                         <option value="cpu">{t("settings.deviceCpu")}</option>
                       </select>
                     </label>
-                  </>
+                  )}
+                </div>
+                {settings.stt_provider === "local" ? (
+                  <p className="settings-note"><Icon name="lock" size={14} />{t("settings.localHint")}</p>
                 ) : (
                   providerFields(settings.stt_provider, "stt")
                 )}
