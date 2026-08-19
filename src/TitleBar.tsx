@@ -20,6 +20,8 @@ interface ModelOption {
   active: boolean;
 }
 
+const formatSize = (mb: number) => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${mb} MB`;
+
 export default function TitleBar({ theme, status, onModelSwitch }: TitleBarProps) {
   const { t } = useTranslation();
   const [maximized, setMaximized] = useState(false);
@@ -35,7 +37,7 @@ export default function TitleBar({ theme, status, onModelSwitch }: TitleBarProps
     .filter((m) => m.downloaded)
     .map((m) => ({
       id: m.id,
-      label: m.name,
+      label: `${m.name} (${formatSize(m.size_mb)})`,
       group: "local" as const,
       active: !isCloud && status.current_model_id === m.id,
     }));

@@ -178,14 +178,15 @@ pub async fn save_provider_settings(
         }
     }
     providers::refresh_secret_statuses(&mut settings);
-    let (old_device, should_reload) = {
+    let (old_device, old_stt_provider, should_reload) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
         (
             inner.provider_settings.local_device.clone(),
+            inner.provider_settings.stt_provider.clone(),
             inner.engine_status == EngineStatus::Ready
                 && inner.current_model_id.is_some()
-                && inner.provider_settings.stt_provider == "local",
+                && settings.stt_provider == "local",
         )
     };
     let path = app.state::<AppState>().lock().provider_settings_path.clone();
@@ -204,9 +205,35 @@ pub async fn save_provider_settings(
                 let _ = load_model(app_clone, model_id, Some(new_dev)).await;
             });
         }
+    } else if old_stt_provider == "local" && settings.stt_provider != "local" {
+        // Switching from local transcription to a cloud provider: release the
+        // loaded model so it does not keep holding VRAM/RAM while the cloud
+        // provider is active.
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = unload_model(app_clone).await {
+                log::warn!("failed to unload local model after switching to cloud: {e}");
+            }
+        });
     }
 
     Ok(settings)
+}
+
+/// Switch the speech-to-text provider (used by the system tray model menu).
+pub async fn switch_stt_provider(app: AppHandle, provider_id: String) -> Result<(), String> {
+    let mut settings = app.state::<AppState>().lock().provider_settings.clone();
+    settings.stt_provider = provider_id;
+    save_provider_settings(app, settings, HashMap::new())
+        .await
+        .map(|_| ())
+}
+
+fn notify_model_ready(app: &AppHandle) {
+    let _ = app.emit("hotyap:model-ready", serde_json::json!({}));
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.show();
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -444,6 +471,22 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
         inner.engine_status = EngineStatus::Loading;
         inner.engine_error = None;
         inner.current_model_id = Some(model_id.clone());
+        // Loading a local model means the user wants local transcription:
+        // switch the STT provider to "local" (and persist it) so the status
+        // and UI stop treating a cloud provider as the active one.
+        let switched_to_local = inner.provider_settings.stt_provider != "local";
+        if switched_to_local {
+            inner.provider_settings.stt_provider = "local".into();
+        }
+        let persist = switched_to_local.then(|| {
+            (inner.provider_settings_path.clone(), inner.provider_settings.clone())
+        });
+        drop(inner);
+        if let Some((path, settings)) = persist {
+            if let Err(e) = crate::providers::persist_settings(&path, &settings) {
+                log::warn!("failed to persist stt_provider switch to local: {e}");
+            }
+        }
     }
     emit_status(&app);
 
@@ -503,6 +546,7 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
                         m.loaded = true;
                     }
                 });
+                notify_model_ready(&app2);
             }
             Err(e) => {
                 log::error!("model load failed: {e}");
@@ -1130,4 +1174,99 @@ pub async fn restart_worker(app: AppHandle) -> Result<(), String> {
             Err(e)
         }
     }
+}
+
+#[tauri::command]
+pub fn set_tray_language(app: AppHandle, language: String) {
+    crate::apply_tray_language(&app, language.starts_with("ru"));
+}
+
+#[tauri::command]
+pub fn set_app_icon(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
+    let image = tauri::image::Image::from_bytes(&bytes)
+        .map_err(|e| format!("invalid icon image: {e}"))?;
+    if let Some(tray) = app.tray_by_id("hotyap-tray") {
+        tray.set_icon(Some(image.clone()))
+            .map_err(|e| format!("tray icon update failed: {e}"))?;
+    }
+    for window in app.webview_windows().values() {
+        window
+            .set_icon(image.clone())
+            .map_err(|e| format!("window icon update failed: {e}"))?;
+    }
+    #[cfg(windows)]
+    set_taskbar_icon(&app, &bytes)?;
+    Ok(())
+}
+
+/// On Windows the taskbar button's icon is bound to the window's
+/// AppUserModelID (falling back to the executable's icon), not to
+/// `WM_SETICON`/`ICON_BIG` (that only affects the title bar / Alt-Tab). To
+/// change the taskbar icon at runtime we write a small `.ico` and point the
+/// window's relaunch icon resource at it via its property store.
+#[cfg(windows)]
+fn set_taskbar_icon(app: &AppHandle, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Cursor;
+    use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_RelaunchIconResource;
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::UI::Shell::PropertiesSystem::{
+        IPropertyStore, SHGetPropertyStoreForWindow,
+    };
+
+    let hwnd = app
+        .get_webview_window("main")
+        .and_then(|window| window.hwnd().ok())
+        .ok_or_else(|| "main window handle unavailable".to_string())?;
+
+    // Build a 256px PNG (taskbar standard large icon size) from the source.
+    let decoded =
+        image::load_from_memory(bytes).map_err(|e| format!("decode icon: {e}"))?;
+    let resized = decoded.resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
+    let mut png = Vec::new();
+    resized
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|e| format!("encode icon: {e}"))?;
+    let ico = png_to_ico(&png);
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir unavailable: {e}"))?;
+    let _ = std::fs::create_dir_all(&data_dir);
+    let ico_path = data_dir.join("taskbar-icon.ico");
+    std::fs::write(&ico_path, &ico).map_err(|e| format!("write taskbar icon: {e}"))?;
+
+    let resource = format!("{},0", ico_path.display());
+    let value = PROPVARIANT::from(resource.as_str());
+    let store: IPropertyStore = unsafe { SHGetPropertyStoreForWindow(hwnd) }
+        .map_err(|e| format!("open window property store: {e}"))?;
+    unsafe {
+        store
+            .SetValue(&PKEY_AppUserModel_RelaunchIconResource, &value)
+            .map_err(|e| format!("set relaunch icon resource: {e}"))?;
+        store
+            .Commit()
+            .map_err(|e| format!("commit relaunch icon resource: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Wrap a 256px PNG into a single-image ICO container (ICO supports
+/// PNG-compressed entries since Vista, and 256 is the largest encodable size).
+#[cfg(windows)]
+fn png_to_ico(png: &[u8]) -> Vec<u8> {
+    let mut ico = Vec::with_capacity(6 + 16 + png.len());
+    ico.extend_from_slice(&0u16.to_le_bytes()); // reserved
+    ico.extend_from_slice(&1u16.to_le_bytes()); // type: icon
+    ico.extend_from_slice(&1u16.to_le_bytes()); // image count
+    ico.push(0); // width (0 == 256)
+    ico.push(0); // height (0 == 256)
+    ico.push(0); // color palette
+    ico.push(0); // reserved
+    ico.extend_from_slice(&1u16.to_le_bytes()); // color planes
+    ico.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+    ico.extend_from_slice(&(png.len() as u32).to_le_bytes()); // bytes in resource
+    ico.extend_from_slice(&22u32.to_le_bytes()); // image data offset
+    ico.extend_from_slice(png);
+    ico
 }

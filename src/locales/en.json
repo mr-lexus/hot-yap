@@ -217,6 +217,8 @@
     "processingCloudUnknown": "Transcribing in the cloud\u2026 press Esc to cancel",
     "copied": "Copied to clipboard",
     "copiedHint": "Ready to paste",
+    "ready": "Model ready",
+    "readyHint": "Ready to dictate",
     "copyError": "Speech transcribed",
     "copyErrorHint": "Could not write it to the clipboard",
     "error": "Could not transcribe",

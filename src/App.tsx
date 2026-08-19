@@ -129,6 +129,7 @@ export default function App() {
       const fixedT = i18n.getFixedT(locale);
       void getCurrentWindow().setTitle(fixedT("brand.windowTitle"));
       void emit("hotyap:language", { language: locale });
+      void invoke("set_tray_language", { language: locale });
     };
     const syncCurrentLanguage = () => syncLanguage();
     syncCurrentLanguage();

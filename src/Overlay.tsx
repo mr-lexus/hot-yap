@@ -9,7 +9,7 @@ import type { StatusReport } from "./types";
 import { applyAppearance, browserSystemTheme, resolveLogoVariant, resolvePanelTheme, savedIconPreference, type Accent, type IconPreference, type Theme } from "./appearance";
 import "./overlay.css";
 
-type OverlayMode = "idle" | "recording" | "processing" | "success" | "copy-error" | "error";
+type OverlayMode = "idle" | "recording" | "processing" | "success" | "copy-error" | "error" | "ready";
 
 async function positionOverlay() {
   const pointer = await cursorPosition().catch(() => null);
@@ -137,6 +137,13 @@ export default function Overlay() {
         changeMode("error");
         scheduleHide(2600);
       }));
+      unlisteners.push(await listen("hotyap:model-ready", () => {
+        void positionOverlay().catch(() => {});
+        activeRef.current = true;
+        if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current);
+        changeMode("ready");
+        scheduleHide(2200);
+      }));
       unlisteners.push(await listen<StatusReport>("vox:status", (event) => {
         const next = event.payload;
         setStatus(next);
@@ -250,7 +257,9 @@ export default function Overlay() {
         ? { title: t("overlay.copied"), hint: t("overlay.copiedHint") }
         : mode === "copy-error"
           ? { title: t("overlay.copyError"), hint: t("overlay.copyErrorHint") }
-          : { title: t("overlay.error"), hint: t("overlay.errorHint") };
+          : mode === "ready"
+            ? { title: t("overlay.ready"), hint: t("overlay.readyHint") }
+            : { title: t("overlay.error"), hint: t("overlay.errorHint") };
 
   return (
     <main className={`ptt-overlay overlay-theme-${panelTheme} mode-${mode}`}>
@@ -293,7 +302,7 @@ export default function Overlay() {
             </button>
           </div>
         )}
-        {mode === "success" && <span className="overlay-result success"><Icon name="check" size={22} /></span>}
+        {(mode === "success" || mode === "ready") && <span className="overlay-result success"><Icon name="check" size={22} /></span>}
         {(mode === "error" || mode === "copy-error" || mode === "idle") && <span className="overlay-result error"><Icon name="close" size={21} /></span>}
       </div>
     </main>

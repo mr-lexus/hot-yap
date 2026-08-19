@@ -145,6 +145,15 @@ pub struct AppStateInner {
     /// Set once the first window close starts worker teardown; guards against
     /// re-entrant CloseRequested events during app exit.
     pub closing: bool,
+    /// Set to true when the user requests a full quit from the tray menu,
+    /// bypassing the "hide to tray" behavior.
+    pub force_quit: bool,
+    /// Whether the tray menu currently uses Russian labels.
+    pub tray_is_ru: bool,
+    /// Signature of the data the tray model menu is built from. The menu is
+    /// only rebuilt when this changes, so status broadcasts don't rebuild it
+    /// on every tick.
+    pub tray_menu_signature: String,
     /// Set to true when the user requests cancellation of an in-progress transcription.
     pub transcribe_cancel: Arc<AtomicBool>,
     /// The worker request ID of the in-progress transcription (used to cancel the pending channel).
@@ -218,6 +227,7 @@ pub fn emit_status(app: &AppHandle) {
     let st = app.state::<AppState>();
     let report = st.lock().report(crate::worker::is_alive(app));
     let _ = app.emit("vox:status", report);
+    crate::refresh_tray_menu(app);
 }
 
 /// The worker died: reset runtime state so the UI can offer a restart.

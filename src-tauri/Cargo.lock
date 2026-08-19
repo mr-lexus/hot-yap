@@ -1881,6 +1881,7 @@ dependencies = [
  "cpal",
  "env_logger",
  "hound",
+ "image",
  "keyring",
  "log",
  "reqwest",
@@ -1892,6 +1893,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "thiserror 2.0.20",
  "tokio",
+ "windows",
 ]
 
 [[package]]

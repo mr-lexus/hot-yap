@@ -79,7 +79,8 @@ html.overlay-page body::before { display: none; }
   --ring-color: color-mix(in srgb, var(--overlay-accent) 72%, transparent);
   --ring-highlight: var(--overlay-accent-hover);
 }
-.ptt-overlay.mode-success {
+.ptt-overlay.mode-success,
+.ptt-overlay.mode-ready {
   --ring-color: rgba(91,194,132,0.65);
   --ring-highlight: #a5ebc0;
 }

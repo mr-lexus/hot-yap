@@ -97,8 +97,7 @@ body::before {
   gap: 10px;
   padding-left: 12px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,255,255,0.035), transparent 70%), var(--surface);
-  backdrop-filter: blur(18px);
+  background: var(--surface-raised);
 }
 .titlebar::before {
   position: absolute;
@@ -539,9 +538,9 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
 .privacy { padding-top: 1px; color: var(--faint); font-size: 11px; text-align: center; }
 
 /* Model manager */
-.modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(5,7,6,0.72); backdrop-filter: blur(10px); }
+.modal-backdrop { position: fixed; z-index: 20; inset: var(--titlebar-h) 0 0 0; display: grid; place-items: center; padding: 18px; background: rgba(5,7,6,0.72); backdrop-filter: blur(10px); }
 :root[data-theme="light"] .modal-backdrop { background: rgba(40,44,40,0.28); }
-.model-modal { width: min(900px, 100%); max-height: min(720px, calc(100vh - 36px)); overflow: hidden; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); box-shadow: 0 28px 90px rgba(0,0,0,0.46); backdrop-filter: blur(24px); }
+.model-modal { width: min(900px, 100%); max-height: min(720px, calc(100vh - var(--titlebar-h) - 36px)); overflow: hidden; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); box-shadow: 0 28px 90px rgba(0,0,0,0.46); backdrop-filter: blur(24px); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .modal-header h2 { font-size: 17px; }
 .modal-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
@@ -613,7 +612,7 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
 .empty-filter { margin: 24px 0; color: var(--muted); text-align: center; font-size: 12px; }
 
 /* Settings */
-.settings-modal { width: min(820px, 100%); max-height: min(760px, calc(100vh - 36px)); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); box-shadow: 0 28px 90px rgba(0,0,0,0.46); backdrop-filter: blur(24px); }
+.settings-modal { width: min(820px, 100%); max-height: min(760px, calc(100vh - var(--titlebar-h) - 36px)); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); box-shadow: 0 28px 90px rgba(0,0,0,0.46); backdrop-filter: blur(24px); }
 .settings-modal > .modal-header { padding: 16px 16px 12px; }
 .settings-scroll { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; scrollbar-color: var(--line-strong) transparent; }
 .settings-scroll.saving { opacity: 0.72; pointer-events: none; }
@@ -697,7 +696,7 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
   .model-strip-status { margin-left: auto; }
   .model-strip .btn { margin-left: 40px; }
   .details-column { display: flex; }
-  .model-modal { max-height: calc(100vh - 20px); padding: 13px; }
+  .model-modal { max-height: calc(100vh - var(--titlebar-h) - 20px); padding: 13px; }
   .modal-backdrop { padding: 10px; }
   .model-overview { align-items: flex-start; flex-wrap: wrap; padding: 7px 0; }
   .model-overview-actions { width: 100%; margin-left: 0; }
@@ -709,7 +708,7 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
   .model-result-count { margin-left: 0; }
   .model-card-bottom { align-items: flex-start; flex-direction: column; }
   .model-actions { justify-content: flex-start; }
-  .settings-modal { max-height: calc(100vh - 20px); }
+  .settings-modal { max-height: calc(100vh - var(--titlebar-h) - 20px); }
   .settings-field-grid { grid-template-columns: 1fr; }
   .settings-field-wide { grid-column: auto; }
   .accent-options { grid-template-columns: repeat(2, 1fr); }

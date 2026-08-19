@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
     "core:window:allow-outer-size",
     "core:window:allow-primary-monitor",
     "core:window:allow-cursor-position",

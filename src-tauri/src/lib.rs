@@ -10,6 +10,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -243,6 +245,157 @@ fn notify_overlay_error(app: &AppHandle, message: &str) {
     );
 }
 
+fn apply_tray_language(app: &AppHandle, is_ru: bool) {
+    {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        inner.tray_is_ru = is_ru;
+    }
+    refresh_tray_menu(app);
+}
+
+fn provider_display_name(id: &str) -> &str {
+    match id {
+        "openai" => "OpenAI",
+        "deepgram" => "Deepgram",
+        "groq" => "Groq",
+        "elevenlabs" => "ElevenLabs",
+        "assemblyai" => "AssemblyAI",
+        "gemini" => "Google Gemini",
+        "openrouter" => "OpenRouter",
+        "anthropic" => "Anthropic",
+        "xai" => "xAI",
+        "bedrock" => "Amazon Bedrock",
+        "ollama" => "Ollama",
+        "lmstudio" => "LM Studio",
+        _ => id,
+    }
+}
+
+/// (Re)build the tray menu: a show/hide item, a submenu listing the downloaded
+/// local models and the cloud providers that have an API key (the active one is
+/// checked), and a quit item. Rebuilds only when the relevant state changes.
+pub(crate) fn refresh_tray_menu(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id("hotyap-tray") else {
+        return;
+    };
+
+    let window_visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(true);
+
+    // Snapshot the data the menu is built from.
+    let (is_ru, local_models, cloud_providers, stt_provider, current_model_id) = {
+        let st = app.state::<AppState>();
+        let inner = st.lock();
+        let local_models: Vec<(String, String, u64)> = inner
+            .models
+            .iter()
+            .filter(|m| m.downloaded)
+            .map(|m| (m.id.clone(), m.name.clone(), m.size_mb))
+            .collect();
+        let cloud_providers: Vec<String> = inner
+            .provider_settings
+            .providers
+            .iter()
+            .filter(|(id, config)| {
+                config.api_key_set
+                    && crate::providers::STT_PROVIDER_IDS.contains(&id.as_str())
+                    && id.as_str() != "local"
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        (
+            inner.tray_is_ru,
+            local_models,
+            cloud_providers,
+            inner.provider_settings.stt_provider.clone(),
+            inner.current_model_id.clone(),
+        )
+    };
+
+    // Cheap signature so status broadcasts don't rebuild the menu every tick.
+    let mut signature = String::new();
+    signature.push_str(&format!("ru:{is_ru};vis:{window_visible};"));
+    for (id, name, size) in &local_models {
+        signature.push_str(&format!("m:{id}:{name}:{size};"));
+    }
+    for id in &cloud_providers {
+        signature.push_str(&format!("p:{id};"));
+    }
+    signature.push_str(&format!(
+        "active:{stt_provider};cur:{}",
+        current_model_id.as_deref().unwrap_or("")
+    ));
+
+    {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        if inner.tray_menu_signature == signature {
+            return;
+        }
+        inner.tray_menu_signature = signature;
+    }
+
+    let (show_text, hide_text, quit_text, model_label) = if is_ru {
+        ("Показать окно", "Скрыть окно", "Выход", "Модель")
+    } else {
+        ("Show window", "Hide window", "Quit", "Model")
+    };
+
+    let mut submenu = SubmenuBuilder::new(app, model_label);
+    for (id, name, size) in &local_models {
+        let label = if *size >= 1000 {
+            format!("{name} ({:.1} GB)", *size as f32 / 1000.0)
+        } else {
+            format!("{name} ({size} MB)")
+        };
+        let checked = stt_provider == "local" && current_model_id.as_deref() == Some(id.as_str());
+        if let Ok(item) = CheckMenuItemBuilder::with_id(format!("model:{id}"), label)
+            .checked(checked)
+            .build(app)
+        {
+            submenu = submenu.item(&item);
+        }
+    }
+    if !local_models.is_empty() && !cloud_providers.is_empty() {
+        submenu = submenu.separator();
+    }
+    for id in &cloud_providers {
+        if let Ok(item) = CheckMenuItemBuilder::with_id(
+            format!("provider:{id}"),
+            provider_display_name(id),
+        )
+        .checked(stt_provider == *id)
+        .build(app)
+        {
+            submenu = submenu.item(&item);
+        }
+    }
+
+    let mut menu = MenuBuilder::new(app);
+    if let Ok(item) = MenuItemBuilder::with_id(
+        "show",
+        if window_visible { hide_text } else { show_text },
+    )
+    .build(app)
+    {
+        menu = menu.item(&item);
+    }
+    if !local_models.is_empty() || !cloud_providers.is_empty() {
+        if let Ok(submenu) = submenu.build() {
+            menu = menu.item(&submenu);
+        }
+    }
+    if let Ok(item) = MenuItemBuilder::with_id("quit", quit_text).build(app) {
+        menu = menu.item(&item);
+    }
+    if let Ok(menu) = menu.build() {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::Builder::from_env(
@@ -346,6 +499,9 @@ pub fn run() {
                 provider_settings,
                 cuda_runtime: state::CudaRuntimeReport::default(),
                 closing: false,
+                force_quit: false,
+                tray_is_ru: false,
+                tray_menu_signature: String::new(),
                 transcribe_cancel: Arc::new(AtomicBool::new(false)),
                 transcribe_request_id: None,
             })));
@@ -431,6 +587,75 @@ pub fn run() {
                 }
             }
             emit_status(&app.handle());
+
+            // System tray icon — detect system locale for initial text.
+            let is_ru = std::env::var("LANG")
+                .map(|v| v.to_lowercase().starts_with("ru"))
+                .unwrap_or(false);
+            {
+                let st = app.state::<AppState>();
+                let mut inner = st.lock();
+                inner.tray_is_ru = is_ru;
+            }
+            let _tray = TrayIconBuilder::with_id("hotyap-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("HotYap")
+                .on_menu_event(move |app, event| {
+                    let id = event.id.as_ref();
+                    if let Some(model_id) = id.strip_prefix("model:") {
+                        let app = app.clone();
+                        let model_id = model_id.to_string();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = commands::load_model(app, model_id, None).await {
+                                log::warn!("tray model switch failed: {e}");
+                            }
+                        });
+                        return;
+                    }
+                    if let Some(provider_id) = id.strip_prefix("provider:") {
+                        let app = app.clone();
+                        let provider_id = provider_id.to_string();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = commands::switch_stt_provider(app, provider_id).await {
+                                log::warn!("tray provider switch failed: {e}");
+                            }
+                        });
+                        return;
+                    }
+                    match id {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            refresh_tray_menu(app);
+                        }
+                        "quit" => {
+                            {
+                                let st = app.state::<AppState>();
+                                let mut inner = st.lock();
+                                inner.force_quit = true;
+                                inner.closing = true;
+                            }
+                            let app = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = tokio::time::timeout(
+                                    Duration::from_secs(15),
+                                    worker::shutdown(&app),
+                                )
+                                .await;
+                                app.exit(0);
+                            });
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+            refresh_tray_menu(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -453,36 +678,49 @@ pub fn run() {
             commands::get_provider_settings,
             commands::save_provider_settings,
             commands::delete_provider_secret,
-            commands::cancel_transcription
+            commands::cancel_transcription,
+            commands::set_tray_language,
+            commands::set_app_icon
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle().clone();
-                // Guard against re-entrant close requests (second window such
-                // as the PTT overlay, or a close while the shutdown task is
-                // already running): only the first one starts the teardown,
-                // the rest let the window close without prevent_close.
-                let already_closing = {
+                // If the user explicitly requested quit from the tray, allow
+                // the window to close and the app to shut down normally.
+                let force_quit = {
                     let st = app.state::<AppState>();
-                    let mut inner = st.lock();
-                    if inner.closing {
-                        true
-                    } else {
-                        inner.closing = true;
-                        false
-                    }
+                    let inner = st.lock();
+                    inner.force_quit
                 };
-                if already_closing {
-                    return;
+                if force_quit {
+                    // Start graceful shutdown (worker teardown + exit) only once.
+                    let already_closing = {
+                        let st = app.state::<AppState>();
+                        let mut inner = st.lock();
+                        if inner.closing {
+                            true
+                        } else {
+                            inner.closing = true;
+                            false
+                        }
+                    };
+                    if already_closing {
+                        return;
+                    }
+                    api.prevent_close();
+                    tauri::async_runtime::spawn(async move {
+                        let _ =
+                            tokio::time::timeout(Duration::from_secs(15), worker::shutdown(&app))
+                                .await;
+                        app.exit(0);
+                    });
+                } else {
+                    // Minimize to system tray instead of closing.
+                    api.prevent_close();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
                 }
-                api.prevent_close();
-                tauri::async_runtime::spawn(async move {
-                    // Bound the whole teardown so app.exit(0) always runs; a
-                    // wedged worker must never leave the app unclosable.
-                    let _ =
-                        tokio::time::timeout(Duration::from_secs(15), worker::shutdown(&app)).await;
-                    app.exit(0);
-                });
             }
         })
         .run(tauri::generate_context!())
