@@ -61,6 +61,13 @@ const EMPTY_STATUS: StatusReport = {
     progress: null,
     error: null,
   },
+  provider_settings: {
+    stt_provider: "local",
+    text_provider: "none",
+    postprocess_prompt: "",
+    local_device: "auto",
+    providers: {},
+  },
 };
 
 export default function Overlay() {

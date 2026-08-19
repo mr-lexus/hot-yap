@@ -62,6 +62,7 @@ export interface StatusReport {
   text_provider: string;
   local_device: string;
   cuda_runtime: CudaRuntimeReport;
+  provider_settings: ProviderSettings;
 }
 
 export interface ProviderConfig {

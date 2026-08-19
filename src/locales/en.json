@@ -232,5 +232,10 @@
     "noDriver": "No NVIDIA driver detected. Install the latest NVIDIA driver to use GPU acceleration.",
     "cpuFallback": "The app will keep working on CPU in the meantime.",
     "restart": "Restart engine"
+  },
+  "modelSwitcher": {
+    "tooltip": "Switch transcription model",
+    "local": "Local models",
+    "cloud": "Cloud providers"
   }
 }

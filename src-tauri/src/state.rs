@@ -106,6 +106,7 @@ pub struct StatusReport {
     pub text_provider: String,
     pub local_device: String,
     pub cuda_runtime: CudaRuntimeReport,
+    pub provider_settings: crate::providers::ProviderSettings,
 }
 
 pub struct AppStateInner {
@@ -202,6 +203,7 @@ impl AppStateInner {
             text_provider: self.provider_settings.text_provider.clone(),
             local_device: self.provider_settings.local_device.clone(),
             cuda_runtime: self.cuda_runtime.clone(),
+            provider_settings: self.provider_settings.clone(),
         }
     }
 }

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import { type CudaRuntimeReport, type StatusReport } from "./types";
+import { type CudaRuntimeReport, type ProviderSettings, type StatusReport } from "./types";
 import ModelManager from "./ModelManager";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icons";
@@ -12,7 +12,6 @@ import SpectrumAnalyzer from "./SpectrumAnalyzer";
 import TranscriptionProgress from "./TranscriptionProgress";
 import SettingsModal, { providerName } from "./SettingsModal";
 import { applyAppearance, applyIconPreference, savedAccent, savedIconPreference, savedTheme, type Accent, type IconPreference, type Theme } from "./appearance";
-import { CustomSelect } from "./CustomSelect";
 import "./app.css";
 
 const DEFAULT_STATUS: StatusReport = {
@@ -50,6 +49,13 @@ const DEFAULT_STATUS: StatusReport = {
     missing: [],
     progress: null,
     error: null,
+  },
+  provider_settings: {
+    stt_provider: "local",
+    text_provider: "none",
+    postprocess_prompt: "",
+    local_device: "auto",
+    providers: {},
   },
 };
 
@@ -303,7 +309,31 @@ export default function App() {
 
   return (
     <>
-      <TitleBar theme={theme} />
+      <TitleBar
+        theme={theme}
+        status={status}
+        onModelSwitch={async (target) => {
+          setBusy(true);
+          setError(null);
+          try {
+            if (target.startsWith("local:")) {
+              const modelId = target.slice(6);
+              await invoke("load_model", { model_id: modelId });
+            } else if (target.startsWith("cloud:")) {
+              const providerId = target.slice(6);
+              const settings = await invoke<ProviderSettings>("get_provider_settings");
+              await invoke("save_provider_settings", {
+                settings: { ...settings, stt_provider: providerId },
+                secrets: {},
+              });
+            }
+          } catch (e) {
+            setError(String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
       <div className="app">
         <header className="topbar">
         <div className="brand-lockup">
@@ -504,21 +534,22 @@ export default function App() {
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
             {!cloudTranscription && !status.worker_alive && <p className="error-msg">{t("engine.workerOffline")}</p>}
             {!cloudTranscription && currentModel?.downloaded && (
-              <CustomSelect
-                label={t("settings.deviceSelect")}
-                value={status.local_device || "auto"}
-                onChange={(nextDev) => {
-                  if (currentModel) {
-                    run(() => invoke("load_model", { model_id: currentModel.id, device: nextDev }));
-                  }
-                }}
-                disabled={busy || status.engine_status === "loading" || !status.worker_alive}
-                options={[
-                  { value: "auto", label: t("models.auto") },
-                  { value: "cuda", label: t("models.cuda") },
-                  { value: "cpu", label: t("models.cpu") },
-                ]}
-              />
+              <label className="engine-device-select">
+                <span>{t("settings.deviceSelect")}</span>
+                <select
+                  disabled={busy || status.engine_status === "loading" || !status.worker_alive}
+                  value={status.local_device || "auto"}
+                  onChange={(event) => {
+                    if (currentModel) {
+                      run(() => invoke("load_model", { model_id: currentModel.id, device: event.target.value }));
+                    }
+                  }}
+                >
+                  <option value="auto">{t("settings.deviceAuto")}</option>
+                  <option value="cuda">{t("settings.deviceCuda")}</option>
+                  <option value="cpu">{t("settings.deviceCpu")}</option>
+                </select>
+              </label>
             )}
             <div className="actions">
               {!cloudTranscription && currentModel?.downloaded && status.engine_status !== "ready" && (
