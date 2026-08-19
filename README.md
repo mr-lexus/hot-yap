@@ -1,4 +1,4 @@
-# HotYap / Горячий Лай — Local RU/EN Voice Dictation
+# HotYap — Local RU/EN Voice Dictation
 
 [![Verify](https://github.com/mr-lexus/hot-yap/actions/workflows/ci.yml/badge.svg)](https://github.com/mr-lexus/hot-yap/actions/workflows/ci.yml)
 [![Landing](https://github.com/mr-lexus/hot-yap/actions/workflows/pages.yml/badge.svg)](https://github.com/mr-lexus/hot-yap/actions/workflows/pages.yml)
@@ -72,7 +72,7 @@ The legacy application identifier is intentionally preserved so existing downloa
 
 ## Interface languages
 
-The interface is available in English (`HotYap`) and Russian (`Горячий Лай`). Use the `EN / RU` switch in the header. Translations live in `src/locales/en.json` and `src/locales/ru.json` and are loaded through `i18next` / `react-i18next`.
+The interface is available in English and Russian. Use the `EN / RU` switch in the header. Translations live in `src/locales/en.json` and `src/locales/ru.json` and are loaded through `i18next` / `react-i18next`.
 
 The public landing has separate, indexable language URLs:
 

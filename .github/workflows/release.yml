@@ -198,7 +198,7 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: |
-            First public alpha of HotYap / Горячий Лай.
+            First public alpha of HotYap.
 
             Packages include the local transcription worker. Speech models are downloaded separately on first use. These builds are currently unsigned; operating-system warnings are expected.
 
