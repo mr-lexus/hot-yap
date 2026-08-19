@@ -21,6 +21,7 @@ pub enum EngineStatus {
     Loading,
     Ready,
     Error,
+    NotInstalled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -37,6 +38,16 @@ pub enum ModelTier {
     Light,
     Medium,
     Heavy,
+}
+
+/// State of the optional on-demand download of the local transcription worker.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerInstallReport {
+    /// Non-null while a worker download is in progress (0.0..1.0).
+    pub progress: Option<f32>,
+    /// Human-readable error from the last failed download, if any.
+    pub error: Option<String>,
 }
 
 /// Availability of the NVIDIA cuBLAS runtime for GPU inference.
@@ -110,6 +121,7 @@ pub struct StatusReport {
     pub text_provider: String,
     pub local_device: String,
     pub cuda_runtime: CudaRuntimeReport,
+    pub worker_install: WorkerInstallReport,
     pub provider_settings: crate::providers::ProviderSettings,
 }
 
@@ -145,6 +157,7 @@ pub struct AppStateInner {
     pub provider_settings_path: PathBuf,
     pub provider_settings: crate::providers::ProviderSettings,
     pub cuda_runtime: CudaRuntimeReport,
+    pub worker_install: WorkerInstallReport,
     /// Set once the first window close starts worker teardown; guards against
     /// re-entrant CloseRequested events during app exit.
     pub closing: bool,
@@ -220,6 +233,7 @@ impl AppStateInner {
             text_provider: self.provider_settings.text_provider.clone(),
             local_device: self.provider_settings.local_device.clone(),
             cuda_runtime: self.cuda_runtime.clone(),
+            worker_install: self.worker_install.clone(),
             provider_settings: self.provider_settings.clone(),
         }
     }

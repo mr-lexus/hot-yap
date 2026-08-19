@@ -22,7 +22,8 @@ base64 = "0.22"
 cpal = "0.18"
 hound = "3.5"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "query", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "query", "rustls", "stream"] }
+futures-util = "0.3"
 tokio = { version = "1", features = ["sync", "time", "process", "io-util", "macros", "fs"] }
 thiserror = "2"
 log = "0.4"

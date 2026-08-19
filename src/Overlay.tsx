@@ -62,6 +62,10 @@ const EMPTY_STATUS: StatusReport = {
     progress: null,
     error: null,
   },
+  worker_install: {
+    progress: null,
+    error: null,
+  },
   provider_settings: {
     stt_provider: "local",
     text_provider: "none",

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -92,7 +92,83 @@ fn worker_script() -> PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../backend/worker.py")
 }
 
-fn worker_launch() -> Result<WorkerLaunch, String> {
+/// File name of the frozen worker next to the app (or in the install dir).
+pub fn worker_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "hotyap-worker.exe"
+    } else {
+        "hotyap-worker"
+    }
+}
+
+/// Rust target triple the release worker was built for.
+fn worker_target() -> &'static str {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "x86_64-pc-windows-msvc"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "aarch64-apple-darwin"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "x86_64-apple-darwin"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "x86_64-unknown-linux-gnu"
+    } else {
+        "unknown"
+    }
+}
+
+/// Release asset name (e.g. `hotyap-worker-x86_64-pc-windows-msvc.exe`).
+fn worker_asset_name() -> String {
+    let mut name = format!("hotyap-worker-{}", worker_target());
+    if cfg!(windows) {
+        name.push_str(".exe");
+    }
+    name
+}
+
+/// Release tag embedded by the CI build (see `.github/workflows/release.yml`).
+/// Absent in dev builds, which therefore cannot download a worker.
+pub fn worker_release_tag() -> Option<&'static str> {
+    option_env!("HOTYAP_RELEASE_TAG")
+}
+
+/// URL of the worker sidecar for this platform and release.
+pub fn worker_download_url() -> Option<String> {
+    worker_release_tag().map(|tag| {
+        format!(
+            "https://github.com/mr-lexus/hot-yap/releases/download/{}/{}",
+            tag,
+            worker_asset_name()
+        )
+    })
+}
+
+pub fn worker_install_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("worker")
+}
+
+pub fn worker_install_path(data_dir: &Path) -> PathBuf {
+    worker_install_dir(data_dir).join(worker_exe_name())
+}
+
+/// Whether a runnable local worker is already available on this machine
+/// (env override, bundled next to the exe, downloaded to app data, or dev venv).
+pub fn worker_installed(data_dir: &Path) -> bool {
+    if std::env::var_os("VOXSHIFT_WORKER").is_some() || std::env::var_os("VOXSHIFT_PYTHON").is_some() {
+        return true;
+    }
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(worker_exe_name())));
+    if bundled.map(|p| p.is_file()).unwrap_or(false) {
+        return true;
+    }
+    if worker_install_path(data_dir).is_file() {
+        return true;
+    }
+    python_path().is_ok()
+}
+
+fn worker_launch(data_dir: &Path) -> Result<WorkerLaunch, String> {
     if let Ok(path) = std::env::var("VOXSHIFT_WORKER") {
         return Ok(WorkerLaunch {
             program: PathBuf::from(path),
@@ -107,17 +183,20 @@ fn worker_launch() -> Result<WorkerLaunch, String> {
         });
     }
 
-    let executable_name = if cfg!(windows) {
-        "hotyap-worker.exe"
-    } else {
-        "hotyap-worker"
-    };
     let bundled = std::env::current_exe()
         .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(executable_name)));
+        .and_then(|path| path.parent().map(|parent| parent.join(worker_exe_name())));
     if let Some(program) = bundled.filter(|path| path.is_file()) {
         return Ok(WorkerLaunch {
             program,
+            script: None,
+        });
+    }
+
+    let installed = worker_install_path(data_dir);
+    if installed.is_file() {
+        return Ok(WorkerLaunch {
+            program: installed,
             script: None,
         });
     }
@@ -128,6 +207,74 @@ fn worker_launch() -> Result<WorkerLaunch, String> {
     })
 }
 
+/// Download and install the frozen worker sidecar into the app data directory.
+/// Emits `vox:worker-download-progress` events with the overall fraction.
+pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
+    let url = worker_download_url()
+        .ok_or_else(|| "Worker download is not available in development builds".to_string())?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("cannot resolve app data dir: {e}"))?;
+    let dir = worker_install_dir(&data_dir);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create worker dir {}: {e}", dir.display()))?;
+    let final_path = worker_install_path(&data_dir);
+    let tmp_path = dir.join(format!("{}.download", worker_exe_name()));
+
+    let client = reqwest::Client::builder()
+        .user_agent("HotYap/0.1")
+        .build()
+        .map_err(|e| format!("cannot initialize download client: {e}"))?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("cannot download worker: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "worker download failed: HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let total = response.content_length().unwrap_or(0);
+
+    use futures_util::StreamExt;
+    let mut stream = response.bytes_stream();
+    let mut file = tokio::fs::File::create(&tmp_path)
+        .await
+        .map_err(|e| format!("cannot create worker file: {e}"))?;
+    let mut received: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("worker download interrupted: {e}"))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("cannot write worker: {e}"))?;
+        received += chunk.len() as u64;
+        if total > 0 {
+            let fraction = (received as f64 / total as f64).clamp(0.0, 1.0) as f32;
+            let _ = app.emit("vox:worker-download-progress", json!({ "fraction": fraction }));
+        }
+    }
+    file.flush()
+        .await
+        .map_err(|e| format!("cannot flush worker: {e}"))?;
+    drop(file);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("cannot mark worker executable: {e}"))?;
+    }
+
+    std::fs::rename(&tmp_path, &final_path)
+        .map_err(|e| format!("cannot install worker: {e}"))?;
+    let _ = app.emit("vox:worker-download-progress", json!({ "fraction": 1.0 }));
+    log::info!("worker installed at {}", final_path.display());
+    Ok(())
+}
+
 pub fn is_alive(app: &AppHandle) -> bool {
     app.try_state::<Arc<Worker>>()
         .map(|w| w.alive.load(Ordering::SeqCst))
@@ -136,7 +283,11 @@ pub fn is_alive(app: &AppHandle) -> bool {
 
 /// Spawn the Python worker process and wire up stdin/stdout/stderr handling.
 pub async fn start(app: &AppHandle) -> Result<(), String> {
-    let launch = worker_launch()?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("cannot resolve app data dir: {e}"))?;
+    let launch = worker_launch(&data_dir)?;
     let mut command = tokio::process::Command::new(&launch.program);
     #[cfg(windows)]
     {

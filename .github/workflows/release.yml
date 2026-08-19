@@ -194,15 +194,32 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOTYAP_RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: |
             First public alpha of HotYap.
 
-            Packages include the local transcription worker. Speech models are downloaded separately on first use. These builds are currently unsigned; operating-system warnings are expected.
+            The local transcription engine is downloaded automatically on first use, and speech models are downloaded separately. These builds are currently unsigned; operating-system warnings are expected.
 
             Linux: DEB, RPM, AppImage. Windows: MSI, NSIS. macOS: DMG for Intel and Apple Silicon.
           releaseDraft: false
           prerelease: true
           args: --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload worker sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: gh release upload "$env:TAG" "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" --clobber
+
+      - name: Upload worker sidecar (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" "src-tauri/binaries/hotyap-worker-${{ matrix.target }}" --clobber

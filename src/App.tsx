@@ -51,6 +51,10 @@ const DEFAULT_STATUS: StatusReport = {
     progress: null,
     error: null,
   },
+  worker_install: {
+    progress: null,
+    error: null,
+  },
   provider_settings: {
     stt_provider: "local",
     text_provider: "none",
@@ -172,17 +176,27 @@ export default function App() {
            audio_spectrum: e.payload.spectrum,
          }));
        });
-       const un5 = await listen<{ fraction: number }>("vox:cuda-runtime-progress", (e) => {
-         setStatus(prev => ({
-           ...prev,
-           cuda_runtime: {
-             ...prev.cuda_runtime,
-             progress: e.payload.fraction,
-             error: null,
-           },
-         }));
-       });
-       listenersRef.current = [un1, un2, un3, un4, un5];
+        const un5 = await listen<{ fraction: number }>("vox:cuda-runtime-progress", (e) => {
+          setStatus(prev => ({
+            ...prev,
+            cuda_runtime: {
+              ...prev.cuda_runtime,
+              progress: e.payload.fraction,
+              error: null,
+            },
+          }));
+        });
+        const un6 = await listen<{ fraction: number }>("vox:worker-download-progress", (e) => {
+          setStatus(prev => ({
+            ...prev,
+            worker_install: {
+              ...prev.worker_install,
+              progress: e.payload.fraction,
+              error: null,
+            },
+          }));
+        });
+        listenersRef.current = [un1, un2, un3, un4, un5, un6];
        // Ask the backend whether the CUDA runtime is usable; the result
        // decides whether the "download CUDA runtime" banner is shown.
        invoke<CudaRuntimeReport>("check_cuda_runtime")
@@ -555,7 +569,10 @@ export default function App() {
                 : status.worker_alive ? t("engine.workerOnline") : t("engine.workerOffline")}
             </p>
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
-            {!cloudTranscription && !status.worker_alive && <p className="error-msg">{t("engine.workerOffline")}</p>}
+            {!cloudTranscription && status.engine_status === "not_installed" && (
+              <p className="warn-msg">{status.worker_install.error ? t("engine.downloadFailed", { error: status.worker_install.error }) : t("engine.notInstalled")}</p>
+            )}
+            {!cloudTranscription && !status.worker_alive && status.engine_status !== "not_installed" && <p className="error-msg">{t("engine.workerOffline")}</p>}
             {!cloudTranscription && currentModel?.downloaded && (
               <label className="engine-device-select">
                 <span>{t("settings.deviceSelect")}</span>
@@ -575,14 +592,27 @@ export default function App() {
               </label>
             )}
             <div className="actions">
-              {!cloudTranscription && currentModel?.downloaded && status.engine_status !== "ready" && (
+              {!cloudTranscription && status.engine_status === "not_installed" && (
+                status.worker_install.progress != null ? (
+                  <span className="cuda-banner-progress">
+                    <Icon name="download" size={13} />
+                    {t("engine.downloading", { progress: Math.round(status.worker_install.progress * 100) })}
+                  </span>
+                ) : (
+                  <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => run(() => invoke("install_worker"))}>
+                    <Icon name="download" size={13} />
+                    {status.worker_install.error ? t("engine.retry") : t("engine.download")}
+                  </button>
+                )
+              )}
+              {!cloudTranscription && currentModel?.downloaded && status.engine_status !== "ready" && status.engine_status !== "not_installed" && (
                 <button className="btn btn-primary btn-sm" disabled={busy || status.engine_status === "loading" || !status.worker_alive} onClick={() => run(() => invoke("load_model", { model_id: currentModel.id }))}>
                   <Icon name="play" size={13} />
                   {status.engine_status === "loading" ? t("engine.loading") : t("engine.load")}
                 </button>
               )}
               {!cloudTranscription && status.engine_status === "ready" && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => invoke("unload_model"))}><Icon name="stop" size={13} />{t("engine.unload")}</button>}
-              {!cloudTranscription && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => invoke("restart_worker"))}><Icon name="refresh" size={13} />{t("engine.restart")}</button>}
+              {!cloudTranscription && status.engine_status !== "not_installed" && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => invoke("restart_worker"))}><Icon name="refresh" size={13} />{t("engine.restart")}</button>}
               {cloudTranscription && <button className="btn btn-secondary btn-sm" onClick={() => setSettingsOpen(true)}><Icon name="sliders" size={13} />{t("provider.configure")}</button>}
             </div>
           </section>

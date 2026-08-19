@@ -30,7 +30,8 @@
     "stopped": "Stopped",
     "loading": "Loading",
     "ready": "Ready",
-    "error": "Error"
+    "error": "Error",
+    "not_installed": "Not installed"
   },
   "model": {
     "active": "Active model",
@@ -65,7 +66,12 @@
     "load": "Load model",
     "loading": "Loading…",
     "unload": "Unload",
-    "restart": "Restart"
+    "restart": "Restart",
+    "notInstalled": "The local transcription engine is not installed yet.",
+    "download": "Download engine",
+    "downloading": "Downloading engine {{progress}}%",
+    "retry": "Retry download",
+    "downloadFailed": "Engine download failed: {{error}}"
   },
   "session": {
     "title": "Session",

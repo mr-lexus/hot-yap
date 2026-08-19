@@ -1,5 +1,5 @@
 export type ModelStatus = "not_downloaded" | "downloading" | "downloaded" | "error";
-export type EngineStatus = "stopped" | "loading" | "ready" | "error";
+export type EngineStatus = "stopped" | "loading" | "ready" | "error" | "not_installed";
 export type Phase = "idle" | "recording" | "transcribing";
 
 export type ModelTier = "light" | "medium" | "heavy";
@@ -29,6 +29,11 @@ export interface CudaRuntimeReport {
   gpu_available: boolean;
   runtime_ok: boolean;
   missing: string[];
+  progress: number | null;
+  error: string | null;
+}
+
+export interface WorkerInstallReport {
   progress: number | null;
   error: string | null;
 }
@@ -63,6 +68,7 @@ export interface StatusReport {
   text_provider: string;
   local_device: string;
   cuda_runtime: CudaRuntimeReport;
+  worker_install: WorkerInstallReport;
   provider_settings: ProviderSettings;
 }
 
@@ -93,6 +99,7 @@ export const ENGINE_LABEL: Record<EngineStatus, string> = {
   loading: "Loading…",
   ready: "Ready",
   error: "Error",
+  not_installed: "Not installed",
 };
 
 export const TIER_LABEL: Record<ModelTier, string> = {

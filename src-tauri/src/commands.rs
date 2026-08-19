@@ -142,6 +142,59 @@ pub async fn install_cuda_runtime(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub async fn install_worker(app: AppHandle) -> Result<(), String> {
+    log::info!("command: install_worker");
+    {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        if inner.worker_install.progress.is_some() {
+            return Err("Worker download already in progress".into());
+        }
+        inner.worker_install.progress = Some(0.0);
+        inner.worker_install.error = None;
+    }
+    emit_status(&app);
+
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match worker::install_worker(&app2).await {
+            Ok(()) => {
+                log::info!("worker download finished; starting engine");
+                set(&app2, |i| {
+                    i.worker_install.progress = None;
+                    i.worker_install.error = None;
+                });
+                match worker::start(&app2).await {
+                    Ok(()) => {
+                        set(&app2, |i| {
+                            i.engine_status = EngineStatus::Stopped;
+                            i.engine_error = None;
+                        });
+                        let _ = check_cuda_runtime(app2.clone()).await;
+                    }
+                    Err(e) => {
+                        set(&app2, |i| {
+                            i.engine_status = EngineStatus::Error;
+                            i.engine_error = Some(e.clone());
+                            i.last_error = Some(e);
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("worker download failed: {e}");
+                set(&app2, |i| {
+                    i.worker_install.progress = None;
+                    i.worker_install.error = Some(e.clone());
+                });
+            }
+        }
+        emit_status(&app2);
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_models(app: AppHandle) -> Result<Vec<crate::state::ModelInfo>, String> {
     log::debug!("command: list_models");

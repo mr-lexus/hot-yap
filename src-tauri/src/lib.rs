@@ -498,6 +498,7 @@ pub fn run() {
                 provider_settings_path,
                 provider_settings,
                 cuda_runtime: state::CudaRuntimeReport::default(),
+                worker_install: state::WorkerInstallReport::default(),
                 closing: false,
                 force_quit: false,
                 tray_is_ru: false,
@@ -510,13 +511,19 @@ pub fn run() {
             let app2 = app.handle().clone();
             let model_dir = app.state::<AppState>().lock().model_dir.clone();
             let catalog = models_with_status;
+            let worker_data_dir = data_dir.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = worker::start(&app2).await {
                     log::error!("worker start failed: {e}");
+                    let installed = worker::worker_installed(&worker_data_dir);
                     {
                         let st = app2.state::<AppState>();
                         let mut inner = st.lock();
-                        inner.engine_status = state::EngineStatus::Error;
+                        inner.engine_status = if installed {
+                            state::EngineStatus::Error
+                        } else {
+                            state::EngineStatus::NotInstalled
+                        };
                         inner.engine_error = Some(e);
                     }
                 } else {
@@ -675,6 +682,7 @@ pub fn run() {
             commands::update_model_catalog,
             commands::check_cuda_runtime,
             commands::install_cuda_runtime,
+            commands::install_worker,
             commands::get_provider_settings,
             commands::save_provider_settings,
             commands::delete_provider_secret,

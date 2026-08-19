@@ -1,6 +1,5 @@
 {
   "bundle": {
-    "externalBin": ["binaries/hotyap-worker"],
     "category": "Productivity",
     "shortDescription": "Local-first Russian and English voice dictation",
     "longDescription": "Hold a shortcut, speak in Russian with English technical terms, and paste the transcript from your clipboard. HotYap supports local Whisper models and optional external providers."
