@@ -488,8 +488,10 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line-stro
 .info-row + .info-row { margin-top: 9px; border-top: 1px solid var(--line); }
 .info-row strong { max-width: 62%; overflow: hidden; color: var(--text); font-size: 11px; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 
-.transcribe-heading { gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.transcribe-heading { gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; align-items: center; }
 .progress-spinner { display: grid; place-items: center; color: var(--amber); }
+.btn-cancel-transcribe { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.btn-cancel-transcribe:hover { color: var(--red); border-color: var(--red); }
 
 .card-error { border-color: rgba(225,124,117,0.45); }
 .card-warning { border-color: rgba(223,179,111,0.45); }

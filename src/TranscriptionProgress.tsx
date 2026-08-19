@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 
 interface TranscriptionProgressProps {
   status: StatusReport;
+  onCancel?: () => void;
 }
 
-export default function TranscriptionProgress({ status }: TranscriptionProgressProps) {
+export default function TranscriptionProgress({ status, onCancel }: TranscriptionProgressProps) {
   const { t } = useTranslation();
   const isTranscribing = status.phase === "transcribing";
   const elapsed = status.transcribe_elapsed;
@@ -24,6 +25,16 @@ export default function TranscriptionProgress({ status }: TranscriptionProgressP
       <span className="progress-spinner"><Icon name="refresh" size={13} /></span>
       <span>{t("progress.transcribing")}</span>
       <span>{t("progress.elapsed", { time: formatTime(elapsed) })}</span>
+      {onCancel && (
+        <button
+          className="btn-cancel-transcribe"
+          onClick={onCancel}
+          title={t("progress.cancel")}
+          aria-label={t("progress.cancel")}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      )}
     </span>
   );
 }

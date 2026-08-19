@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -144,6 +145,10 @@ pub struct AppStateInner {
     /// Set once the first window close starts worker teardown; guards against
     /// re-entrant CloseRequested events during app exit.
     pub closing: bool,
+    /// Set to true when the user requests cancellation of an in-progress transcription.
+    pub transcribe_cancel: Arc<AtomicBool>,
+    /// The worker request ID of the in-progress transcription (used to cancel the pending channel).
+    pub transcribe_request_id: Option<u64>,
 }
 
 pub struct AppState(pub Mutex<AppStateInner>);

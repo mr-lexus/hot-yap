@@ -49,6 +49,7 @@ state = {
     "device": None,
     "compute_type": None,
     "busy": False,
+    "cancel_event": threading.Event(),
 }
 
 HANDLERS = {}
@@ -300,13 +301,18 @@ def cmd_transcribe(req):
     # daemon thread and pump progress events (and the timeout watchdog) from
     # the main loop while it works.
     result_box = {}
+    state["cancel_event"].clear()
 
     def _run():
         try:
             def _on_progress(frac):
                 result_box["fraction"] = frac
 
-            result_box["result"] = inference.transcribe(state, audio_path, on_progress=_on_progress)
+            result_box["result"] = inference.transcribe(
+                state, audio_path,
+                on_progress=_on_progress,
+                on_cancel=state["cancel_event"].is_set,
+            )
         except Exception as e:
             log(f"transcribe failed:\n{traceback.format_exc()}")
             result_box["error"] = f"{type(e).__name__}: {e}"
@@ -345,6 +351,9 @@ def cmd_transcribe(req):
             }
 
     state["busy"] = False
+    if state["cancel_event"].is_set():
+        state["cancel_event"].clear()
+        return {"ok": False, "error": "Transcription cancelled"}
     if "result" in result_box:
         return {"event": "transcribed", **result_box["result"]}
     return {"ok": False, "error": result_box.get("error", "transcription failed")}
@@ -596,6 +605,10 @@ def main():
             reply(rid, {"ok": True, "event": "shutdown_ack"})
             log("shutdown requested, exiting")
             break
+        if cmd == "cancel_transcription":
+            state["cancel_event"].set()
+            reply(rid, {"ok": True, "event": "cancel_ack"})
+            continue
         handler = HANDLERS.get(cmd)
         if handler is None:
             reply(rid, {"ok": False, "error": f"unknown command: {cmd}"})

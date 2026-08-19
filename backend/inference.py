@@ -206,7 +206,7 @@ def audio_duration(audio_path: str) -> float:
             return 0.0
 
 
-def transcribe(state: dict, audio_path: str, on_progress=None):
+def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
     model = state.get("model")
     if model is None:
         raise RuntimeError("model is not loaded; press 'Start model' first")
@@ -228,6 +228,9 @@ def transcribe(state: dict, audio_path: str, on_progress=None):
             initial_prompt=INITIAL_PROMPT,
         )
         for seg in segments:
+            if on_cancel and on_cancel():
+                log("transcription cancelled between segments")
+                break
             text_parts.append(seg.text.strip())
             if on_progress and info.duration:
                 on_progress(min(0.99, seg.end / info.duration))

@@ -87,7 +87,8 @@
   },
   "progress": {
     "transcribing": "Transcribing",
-    "elapsed": "· {{time}}"
+    "elapsed": "· {{time}}",
+    "cancel": "Cancel transcription"
   },
   "privacy": "No cloud · No history · No telemetry",
   "privacyCloud": "Cloud transcription via {{provider}} · No local history · No telemetry",
@@ -212,8 +213,8 @@
     "recording": "Recording",
     "recordingHint": "Release the shortcut to transcribe",
     "processing": "Processing speech",
-    "processingUnknown": "Transcribing locally…",
-    "processingCloudUnknown": "Transcribing in the cloud…",
+    "processingUnknown": "Transcribing locally\u2026 press Esc to cancel",
+    "processingCloudUnknown": "Transcribing in the cloud\u2026 press Esc to cancel",
     "copied": "Copied to clipboard",
     "copiedHint": "Ready to paste",
     "copyError": "Speech transcribed",

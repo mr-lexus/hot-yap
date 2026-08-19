@@ -345,10 +345,23 @@ pub async fn request(
     command: Value,
     timeout: Duration,
 ) -> Result<WorkerMessage, String> {
+    request_with_id(app, worker, command, timeout, None).await
+}
+
+/// Like [`request`] but lets the caller provide a specific request ID. Used
+/// by `cancel_transcription` so the ID can be stored in state for later
+/// cancellation via [`cancel_request`].
+pub async fn request_with_id(
+    app: &AppHandle,
+    worker: &Worker,
+    command: Value,
+    timeout: Duration,
+    external_id: Option<u64>,
+) -> Result<WorkerMessage, String> {
     if !worker.alive.load(Ordering::SeqCst) {
         return Err("Python worker is not running".to_string());
     }
-    let id = worker.next_id.fetch_add(1, Ordering::SeqCst);
+    let id = external_id.unwrap_or_else(|| worker.next_id.fetch_add(1, Ordering::SeqCst));
     let (tx, mut rx) = mpsc::unbounded_channel();
     worker.pending.lock().unwrap().insert(id, tx);
 
@@ -525,8 +538,31 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Cancel a pending request by sending it an error response and removing it
+/// from the pending map. Used to abort an in-flight transcription so the
+/// caller's `request()` returns immediately with an error.
+pub fn cancel_request(worker: &Worker, id: u64) {
+    let mut pending = worker.pending.lock().unwrap();
+    if let Some(tx) = pending.remove(&id) {
+        let _ = tx.send(WorkerMessage {
+            id: Some(id),
+            ok: Some(false),
+            event: None,
+            error: Some("Transcription cancelled".to_string()),
+            payload: json!({}),
+        });
+    }
+}
+
 pub fn model_dir(app: &AppHandle) -> PathBuf {
     let st = app.state::<AppState>();
     let inner = st.lock();
     inner.model_dir.clone()
+}
+
+/// Allocate a new request ID without sending a request. Used by
+/// `transcribe_recording` so the ID can be stored in state for later
+/// cancellation via [`cancel_request`].
+pub fn next_request_id(worker: &Worker) -> u64 {
+    worker.next_id.fetch_add(1, Ordering::SeqCst)
 }

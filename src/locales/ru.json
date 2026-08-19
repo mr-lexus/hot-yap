@@ -87,7 +87,8 @@
   },
   "progress": {
     "transcribing": "Обработка речи",
-    "elapsed": "· {{time}}"
+    "elapsed": "· {{time}}",
+    "cancel": "Отменить транскрибацию"
   },
   "privacy": "Без облака · Без истории · Без телеметрии",
   "privacyCloud": "Облачное распознавание через {{provider}} · Без локальной истории · Без телеметрии",
@@ -212,8 +213,8 @@
     "recording": "Идёт запись",
     "recordingHint": "Отпустите клавишу для обработки",
     "processing": "Обрабатываем речь",
-    "processingUnknown": "Распознаём локально…",
-    "processingCloudUnknown": "Распознаём в облаке…",
+    "processingUnknown": "Распознаём локально\u2026 нажмите Esc для отмены",
+    "processingCloudUnknown": "Распознаём в облаке\u2026 нажмите Esc для отмены",
     "copied": "Скопировано в буфер",
     "copiedHint": "Текст готов для вставки",
     "copyError": "Текст распознан",

@@ -266,6 +266,10 @@ export default function App() {
       });
   };
 
+  const cancelTranscription = () => {
+    invoke("cancel_transcription").catch((e) => setError(String(e)));
+  };
+
   useEffect(() => {
     if (releaseCommandDoneRef.current && status.phase !== "recording") {
       releaseCommandDoneRef.current = false;
@@ -481,7 +485,7 @@ export default function App() {
               <span className="hotkey-value"><Icon name="keyboard" size={15} /><span className="setting-label">{t("dictation.shortcut")}</span> {hotkeyParts(status.hotkey).map((part, index) => (
                 <span key={`${part}-${index}`}>{index > 0 && " + "}<kbd>{part}</kbd></span>
               ))}</span>
-              <TranscriptionProgress status={status} />
+              <TranscriptionProgress status={status} onCancel={cancelTranscription} />
               <button
                 ref={(element) => {
                   if (capturingHotkey) element?.focus();

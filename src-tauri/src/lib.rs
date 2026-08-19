@@ -6,6 +6,7 @@ mod state;
 mod worker;
 
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -345,6 +346,8 @@ pub fn run() {
                 provider_settings,
                 cuda_runtime: state::CudaRuntimeReport::default(),
                 closing: false,
+                transcribe_cancel: Arc::new(AtomicBool::new(false)),
+                transcribe_request_id: None,
             })));
 
             // Start the Python worker asynchronously; the app still opens if it fails.
@@ -449,7 +452,8 @@ pub fn run() {
             commands::install_cuda_runtime,
             commands::get_provider_settings,
             commands::save_provider_settings,
-            commands::delete_provider_secret
+            commands::delete_provider_secret,
+            commands::cancel_transcription
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

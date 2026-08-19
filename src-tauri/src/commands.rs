@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use crate::audio::{write_wav, Recorder};
 use crate::error::temp_wav_path;
 use crate::providers::{self, ProviderSettings};
 use crate::state::{emit_status, AppState, EngineStatus, ModelStatus, Phase};
-use crate::worker::{self, request};
+use crate::worker::{self, request, request_with_id};
 
 fn set(app: &AppHandle, f: impl FnOnce(&mut crate::state::AppStateInner)) {
     let st = app.state::<AppState>();
@@ -747,7 +748,10 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
 
     // Publish the state transition before any potentially blocking stream
     // shutdown or disk work. The UI must never remain in "Recording" here.
-    set(&app, |i| i.phase = Phase::Transcribing);
+    set(&app, |i| {
+        i.phase = Phase::Transcribing;
+        i.transcribe_cancel.store(false, Ordering::SeqCst);
+    });
     emit_status(&app);
 
     let app2 = app.clone();
@@ -791,6 +795,18 @@ async fn transcribe_recording(
     rec_duration: f64,
 ) -> Result<String, String> {
     log::info!("recorded {rec_duration:.1}s of audio");
+
+    // Check if cancellation was requested before we even start
+    if app.state::<AppState>().lock().transcribe_cancel.load(Ordering::SeqCst) {
+        log::info!("transcription cancelled before start");
+        set(&app, |i| {
+            i.phase = Phase::Idle;
+        });
+        emit_status(&app);
+        let _ = std::fs::remove_file(temp_wav_path());
+        return Err("Transcription cancelled".to_string());
+    }
+
     if rec_duration < 0.3 || !samples.iter().any(|sample| sample.unsigned_abs() > 64) {
         let error = "Recording was too short or silent".to_string();
         set_idle_error(&app, error.clone());
@@ -806,6 +822,21 @@ async fn transcribe_recording(
 
     let settings = app.state::<AppState>().lock().provider_settings.clone();
     let local_transcription = settings.stt_provider == "local";
+
+    // Generate a request ID upfront for local transcription so we can store
+    // it in state and cancel the pending worker request later.
+    let worker_request_id: Option<u64> = if local_transcription {
+        if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
+            let rid = worker::next_request_id(&worker_arc);
+            set(&app, |i| i.transcribe_request_id = Some(rid));
+            Some(rid)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let result: Result<String, String> = if local_transcription {
         // This box's CPU can run at RTF ~15-20, so a long dictation legitimately
         // takes minutes. Size the timeout from the recorded duration with a wide margin.
@@ -815,11 +846,12 @@ async fn transcribe_recording(
                 .saturating_add(300)
                 .min(3600),
         );
-        request(
+        request_with_id(
             &app,
             &*app.state::<Arc<worker::Worker>>(),
             json!({"command": "transcribe", "audio_path": wav_path}),
             timeout,
+            worker_request_id,
         )
         .await
         .map(|msg| {
@@ -838,6 +870,19 @@ async fn transcribe_recording(
     };
 
     let _ = std::fs::remove_file(&wav_path);
+
+    // Clear the stored request ID now that the worker call is done
+    set(&app, |i| i.transcribe_request_id = None);
+
+    // Check if the user cancelled while we were waiting
+    if app.state::<AppState>().lock().transcribe_cancel.load(Ordering::SeqCst) {
+        log::info!("transcription cancelled during processing");
+        set(&app, |i| {
+            i.phase = Phase::Idle;
+        });
+        emit_status(&app);
+        return Err("Transcription cancelled".to_string());
+    }
 
     match result {
         Ok(raw_text) => {
@@ -1008,6 +1053,47 @@ pub async fn release_to_talk(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     stop_recording_after_ptt(app).await
+}
+
+#[tauri::command]
+pub async fn cancel_transcription(app: AppHandle) -> Result<(), String> {
+    log::info!("command: cancel_transcription");
+    let (was_transcribing, request_id) = {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        if inner.phase != Phase::Transcribing {
+            return Ok(());
+        }
+        inner.transcribe_cancel.store(true, Ordering::SeqCst);
+        let rid = inner.transcribe_request_id.take();
+        inner.phase = Phase::Idle;
+        inner.ptt_pressed = false;
+        inner.ptt_generation = inner.ptt_generation.wrapping_add(1);
+        (true, rid)
+    };
+    if was_transcribing {
+        if let Some(rid) = request_id {
+            if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
+                worker::cancel_request(&worker_arc, rid);
+            }
+        }
+        // Send cancel command to the Python worker so it stops inference
+        // between segments. This is fire-and-forget: the worker processes
+        // it inline in the stdin loop even while transcription runs.
+        if worker::is_alive(&app) {
+            if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
+                let _ = worker::request_with_id(
+                    &app,
+                    &worker_arc,
+                    json!({"command": "cancel_transcription"}),
+                    Duration::from_secs(3),
+                    None,
+                ).await;
+            }
+        }
+        emit_status(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command]

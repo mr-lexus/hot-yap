@@ -151,7 +151,11 @@ export default function Overlay() {
           return;
         }
         if (modeRef.current === "recording" || modeRef.current === "processing") {
-          if (next.last_error) {
+          if (next.last_error === "Transcription cancelled") {
+            activeRef.current = false;
+            changeMode("idle");
+            void getCurrentWindow().hide();
+          } else if (next.last_error) {
             changeMode("error");
             scheduleHide(2600);
           } else if (!next.last_copied) {
@@ -187,6 +191,30 @@ export default function Overlay() {
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, []);
+
+  const cancelTranscription = () => {
+    invoke("cancel_transcription").catch(() => {});
+  };
+
+  useEffect(() => {
+    if (mode !== "processing") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelTranscription();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode === "processing") {
+      void getCurrentWindow().setIgnoreCursorEvents(false).catch(() => {});
+    } else if (activeRef.current) {
+      void getCurrentWindow().setIgnoreCursorEvents(true).catch(() => {});
+    }
+  }, [mode]);
 
   const panelTheme = resolvePanelTheme(iconPreference, systemTheme);
   const logoVariant = resolveLogoVariant(iconPreference, systemTheme);
@@ -255,6 +283,14 @@ export default function Overlay() {
           <div className="overlay-progress" role="status" aria-label={t("overlay.processing")}>
             <span className="overlay-spinner" aria-hidden="true" />
             <Icon name="waveform" size={16} />
+            <button
+              className="overlay-cancel-btn"
+              onClick={cancelTranscription}
+              title={t("progress.cancel")}
+              aria-label={t("progress.cancel")}
+            >
+              <Icon name="close" size={14} />
+            </button>
           </div>
         )}
         {mode === "success" && <span className="overlay-result success"><Icon name="check" size={22} /></span>}
