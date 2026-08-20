@@ -42,6 +42,17 @@ import time
 import traceback
 from pathlib import Path
 
+# The release worker no longer bundles PyAV/FFmpeg (audio is resampled to
+# 16 kHz by the Rust side). faster_whisper still does `import av` at import
+# time, so install a no-op stand-in when the real PyAV is absent. It is never
+# used because we always pass a numpy array to `WhisperModel.transcribe`.
+try:
+    import av  # noqa: F401
+except Exception:
+    import types
+
+    sys.modules.setdefault("av", types.ModuleType("av"))
+
 VERSION = "0.1.0"
 
 state = {

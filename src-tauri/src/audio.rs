@@ -201,3 +201,98 @@ pub fn write_wav(path: &Path, samples: &[i16], sample_rate: u32) -> Result<(), S
     );
     Ok(())
 }
+
+/// Resample mono i16 samples to 16 kHz (Whisper's expected sample rate).
+/// Uses a windowed-sinc resampler (rubato) with a linear-interpolation
+/// fallback for buffers too short for the sinc filter.
+pub fn resample_to_16k(samples: &[i16], from_hz: u32) -> Vec<i16> {
+    if from_hz == 16_000 || samples.len() < 2 {
+        return samples.to_vec();
+    }
+    let input: Vec<f32> = samples.iter().map(|&s| s as f32 / 32768.0).collect();
+    let output = sinc_resample(&input, from_hz, 16_000)
+        .unwrap_or_else(|| linear_resample(&input, from_hz, 16_000));
+    output
+        .into_iter()
+        .map(|v| (v * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+        .collect()
+}
+
+fn sinc_resample(input: &[f32], from_hz: u32, to_hz: u32) -> Option<Vec<f32>> {
+    use rubato::{
+        Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    };
+    let params = SincInterpolationParameters {
+        sinc_len: 256,
+        f_cutoff: 0.95,
+        interpolation: SincInterpolationType::Linear,
+        oversampling_factor: 256,
+        window: WindowFunction::BlackmanHarris2,
+    };
+    let mut resampler = SincFixedIn::<f32>::new(
+        to_hz as f64 / from_hz as f64,
+        2.0,
+        params,
+        input.len(),
+        1,
+    )
+    .ok()?;
+    let output = resampler.process(&[input.to_vec()], None).ok()?;
+    output.into_iter().next()
+}
+
+fn linear_resample(input: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
+    let ratio = to_hz as f64 / from_hz as f64;
+    let out_len = ((input.len() as f64) * ratio).round().max(1.0) as usize;
+    let mut output = Vec::with_capacity(out_len);
+    let max_index = input.len().saturating_sub(1);
+    for i in 0..out_len {
+        let position = i as f64 / ratio;
+        let lo = (position.floor() as usize).min(max_index);
+        let hi = (lo + 1).min(max_index);
+        let frac = (position - lo as f64) as f32;
+        output.push(input[lo] * (1.0 - frac) + input[hi] * frac);
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resample_is_identity_at_16k() {
+        let samples: Vec<i16> = (0..16_000)
+            .map(|i| ((i as f32 * 0.05).sin() * 12_000.0) as i16)
+            .collect();
+        let out = resample_to_16k(&samples, 16_000);
+        assert_eq!(out, samples);
+    }
+
+    #[test]
+    fn resample_48k_to_16k_preserves_frequency() {
+        let rate = 48_000u32;
+        let freq = 1_000.0f32;
+        let samples: Vec<i16> = (0..rate)
+            .map(|i| {
+                ((2.0 * std::f32::consts::PI * freq * i as f32 / rate as f32).sin() * 20_000.0)
+                    as i16
+            })
+            .collect();
+        let out = resample_to_16k(&samples, rate);
+        assert!(
+            (out.len() as i64 - 16_000).abs() < 64,
+            "unexpected length {}",
+            out.len()
+        );
+        let crossings = out
+            .windows(2)
+            .filter(|w| (w[0] < 0) != (w[1] < 0))
+            .count();
+        let estimated_hz = crossings as f32 / 2.0;
+        assert!(
+            (estimated_hz - freq).abs() < 80.0,
+            "estimated frequency {estimated_hz} Hz, expected {freq} Hz"
+        );
+    }
+}

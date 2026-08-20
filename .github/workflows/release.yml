@@ -104,9 +104,9 @@ jobs:
             --paths backend \
             --hidden-import inference \
             --hidden-import model_download \
+            --exclude-module av \
             --collect-all faster_whisper \
             --collect-all ctranslate2 \
-            --collect-all av \
             --collect-all tokenizers \
             --collect-all huggingface_hub \
             --collect-all onnxruntime \
@@ -128,9 +128,9 @@ jobs:
             --paths backend `
             --hidden-import inference `
             --hidden-import model_download `
+            --exclude-module av `
             --collect-all faster_whisper `
             --collect-all ctranslate2 `
-            --collect-all av `
             --collect-all tokenizers `
             --collect-all huggingface_hub `
             --collect-all onnxruntime `

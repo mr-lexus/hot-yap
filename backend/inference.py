@@ -9,7 +9,20 @@ import re
 import sys
 import time
 import traceback
+import wave
 from pathlib import Path
+
+# The release worker no longer bundles PyAV/FFmpeg: the Rust side resamples the
+# recording to 16 kHz and we decode the WAV here with the stdlib `wave` module.
+# faster_whisper still does `import av` at import time, so install a no-op
+# stand-in when the real PyAV is absent. `faster_whisper.audio.decode_audio` is
+# never called because we always pass a numpy array to `WhisperModel.transcribe`.
+try:
+    import av  # noqa: F401
+except Exception:
+    import types
+
+    sys.modules.setdefault("av", types.ModuleType("av"))
 
 SUB = "ct2_int8_float16"
 
@@ -193,17 +206,27 @@ def _load_faster_whisper(path: Path, device: str, compute_type: str):
 def audio_duration(audio_path: str) -> float:
     """Best-effort audio duration in seconds (for timeout sizing)."""
     try:
-        import wave
-
         with wave.open(audio_path, "rb") as w:
             return w.getnframes() / w.getframerate()
     except Exception:
-        try:
-            from faster_whisper.audio import decode_audio
+        return 0.0
 
-            return float(len(decode_audio(audio_path)) / 16000.0)
-        except Exception:
-            return 0.0
+
+def _decode_wav_16k(audio_path: str):
+    """Read a 16-bit PCM mono 16 kHz WAV into a float32 numpy array."""
+    import numpy as np
+
+    with wave.open(audio_path, "rb") as w:
+        channels = w.getnchannels()
+        sample_width = w.getsampwidth()
+        sample_rate = w.getframerate()
+        frames = w.readframes(w.getnframes())
+    if sample_width != 2 or channels != 1 or sample_rate != 16000:
+        raise RuntimeError(
+            f"unsupported WAV format: {channels} ch, "
+            f"{sample_width * 8}-bit, {sample_rate} Hz (expected mono 16-bit 16 kHz)"
+        )
+    return np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
 
 
 def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
@@ -215,9 +238,11 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
     dev = state.get("device", "cpu")
     text_parts = []
 
+    audio = _decode_wav_16k(audio_path)
+
     try:
         segments, info = model.transcribe(
-            audio_path,
+            audio,
             language="ru",
             task="transcribe",
             # CPU dictation must stay responsive; CUDA keeps the more accurate beam.
