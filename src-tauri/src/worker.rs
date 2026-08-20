@@ -131,11 +131,24 @@ pub fn worker_release_tag() -> Option<&'static str> {
     option_env!("HOTYAP_RELEASE_TAG")
 }
 
+/// GitHub repository the worker is published to. Overridable at build time
+/// (e.g. for forks) via `HOTYAP_RELEASE_REPO`; defaults to the upstream repo.
+fn worker_release_repo() -> &'static str {
+    option_env!("HOTYAP_RELEASE_REPO").unwrap_or("mr-lexus/hot-yap")
+}
+
+/// Expected SHA-256 of the release worker, embedded by the CI build. Absent in
+/// dev builds. Used to reject a corrupted or truncated download.
+fn worker_sha256() -> Option<&'static str> {
+    option_env!("HOTYAP_WORKER_SHA256")
+}
+
 /// URL of the worker sidecar for this platform and release.
 pub fn worker_download_url() -> Option<String> {
     worker_release_tag().map(|tag| {
         format!(
-            "https://github.com/mr-lexus/hot-yap/releases/download/{}/{}",
+            "https://github.com/{}/releases/download/{}/{}",
+            worker_release_repo(),
             tag,
             worker_asset_name()
         )
@@ -183,20 +196,23 @@ fn worker_launch(data_dir: &Path) -> Result<WorkerLaunch, String> {
         });
     }
 
+    // Prefer the downloaded worker over a stale copy next to the exe: a
+    // bundled worker from an older release would otherwise win and never be
+    // updated (see worker_installed for the same ordering).
+    let installed = worker_install_path(data_dir);
+    if installed.is_file() {
+        return Ok(WorkerLaunch {
+            program: installed,
+            script: None,
+        });
+    }
+
     let bundled = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.join(worker_exe_name())));
     if let Some(program) = bundled.filter(|path| path.is_file()) {
         return Ok(WorkerLaunch {
             program,
-            script: None,
-        });
-    }
-
-    let installed = worker_install_path(data_dir);
-    if installed.is_file() {
-        return Ok(WorkerLaunch {
-            program: installed,
             script: None,
         });
     }
@@ -224,6 +240,8 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
 
     let client = reqwest::Client::builder()
         .user_agent("HotYap/0.1")
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(3600))
         .build()
         .map_err(|e| format!("cannot initialize download client: {e}"))?;
     let response = client
@@ -245,8 +263,17 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("cannot create worker file: {e}"))?;
     let mut received: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("worker download interrupted: {e}"))?;
+    loop {
+        // A stalled connection must not hang the download forever: require
+        // the next chunk within 60s or abort.
+        let chunk = match tokio::time::timeout(Duration::from_secs(60), stream.next()).await {
+            Ok(Some(chunk)) => chunk.map_err(|e| format!("worker download interrupted: {e}"))?,
+            Ok(None) => break,
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Err("worker download stalled: no data received for 60s".to_string());
+            }
+        };
         file.write_all(&chunk)
             .await
             .map_err(|e| format!("cannot write worker: {e}"))?;
@@ -261,6 +288,17 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("cannot flush worker: {e}"))?;
     drop(file);
 
+    if let Some(expected) = worker_sha256() {
+        let expected = expected.trim();
+        let actual = sha256_file(&tmp_path)?;
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(format!(
+                "worker checksum mismatch: expected {expected}, got {actual}"
+            ));
+        }
+    }
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -273,6 +311,27 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
     let _ = app.emit("vox:worker-download-progress", json!({ "fraction": 1.0 }));
     log::info!("worker installed at {}", final_path.display());
     Ok(())
+}
+
+/// Compute the hex SHA-256 of a file (used to verify the downloaded worker).
+fn sha256_file(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("cannot open worker for verification: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("cannot read worker for verification: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn is_alive(app: &AppHandle) -> bool {

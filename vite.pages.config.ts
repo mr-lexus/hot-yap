@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 const env =
@@ -9,17 +10,21 @@ const env =
 const repository = env.GITHUB_REPOSITORY?.split("/")[1] ?? "hot-yap";
 const base = env.PAGES_BASE ?? (env.GITHUB_ACTIONS ? `/${repository}/` : "/");
 
+const root = fileURLToPath(new URL("./website", import.meta.url));
+const publicDir = fileURLToPath(new URL("./public", import.meta.url));
+const outDir = fileURLToPath(new URL("./dist-pages", import.meta.url));
+
 export default defineConfig({
-  root: new URL("./website", import.meta.url).pathname,
+  root,
   base,
-  publicDir: new URL("./public", import.meta.url).pathname,
+  publicDir,
   build: {
-    outDir: new URL("./dist-pages", import.meta.url).pathname,
+    outDir,
     emptyOutDir: true,
     rollupOptions: {
       input: [
-        new URL("./website/index.html", import.meta.url).pathname,
-        new URL("./website/ru/index.html", import.meta.url).pathname,
+        fileURLToPath(new URL("./website/index.html", import.meta.url)),
+        fileURLToPath(new URL("./website/ru/index.html", import.meta.url)),
       ],
     },
   },

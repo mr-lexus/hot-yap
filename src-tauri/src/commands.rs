@@ -913,12 +913,25 @@ async fn transcribe_recording(
     }
 
     let wav_path = temp_wav_path();
-    let (samples, sample_rate) = if sample_rate != 16_000 {
-        (crate::audio::resample_to_16k(&samples, sample_rate), 16_000)
-    } else {
-        (samples, sample_rate)
+    // Resampling + WAV encoding are CPU/IO bound; keep them off the async
+    // runtime so a long recording cannot block other tasks.
+    let write_result = tauri::async_runtime::spawn_blocking({
+        let wav_path = wav_path.clone();
+        move || {
+            let (samples, sample_rate) = if sample_rate != 16_000 {
+                (crate::audio::resample_to_16k(&samples, sample_rate), 16_000)
+            } else {
+                (samples, sample_rate)
+            };
+            write_wav(&wav_path, &samples, sample_rate)
+        }
+    })
+    .await;
+    let write_result = match write_result {
+        Ok(result) => result,
+        Err(e) => Err(format!("Recording task failed: {e}")),
     };
-    if let Err(error) = write_wav(&wav_path, &samples, sample_rate) {
+    if let Err(error) = write_result {
         let _ = std::fs::remove_file(&wav_path);
         set_idle_error(&app, error.clone());
         return Err(error);

@@ -190,11 +190,25 @@ jobs:
         shell: pwsh
         run: Remove-Item -Recurse -Force build/pyinstaller, build/worker
 
+      - name: Compute worker checksum (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: echo "WORKER_SHA256=$(sha256sum "src-tauri/binaries/hotyap-worker-${{ matrix.target }}" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Compute worker checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "src-tauri/binaries/hotyap-worker-${{ matrix.target }}.exe" -Algorithm SHA256).Hash.ToLower()
+          echo "WORKER_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build installers and publish prerelease
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOTYAP_RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          HOTYAP_RELEASE_REPO: ${{ github.repository }}
+          HOTYAP_WORKER_SHA256: ${{ env.WORKER_SHA256 }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
