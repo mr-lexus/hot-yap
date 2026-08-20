@@ -69,6 +69,7 @@ export interface StatusReport {
   local_device: string;
   cuda_runtime: CudaRuntimeReport;
   worker_install: WorkerInstallReport;
+  cuda_supported: boolean;
   provider_settings: ProviderSettings;
 }
 

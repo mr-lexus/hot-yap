@@ -10,6 +10,7 @@ interface SettingsModalProps {
   open: boolean;
   accent: Accent;
   iconPreference: IconPreference;
+  cudaSupported: boolean;
   onAccentChange: (accent: Accent) => void;
   onIconPreferenceChange: (preference: IconPreference) => void;
   onClose: () => void;
@@ -39,7 +40,7 @@ const OPTIONAL_KEY = new Set(["ollama", "lmstudio"]);
 
 export const providerName = (id: string) => PROVIDER_NAMES[id] ?? id;
 
-export default function SettingsModal({ open, accent, iconPreference, onAccentChange, onIconPreferenceChange, onClose, onSaved }: SettingsModalProps) {
+export default function SettingsModal({ open, accent, iconPreference, cudaSupported, onAccentChange, onIconPreferenceChange, onClose, onSaved }: SettingsModalProps) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -274,7 +275,7 @@ export default function SettingsModal({ open, accent, iconPreference, onAccentCh
                         }}
                       >
                         <option value="auto">{t("settings.deviceAuto")}</option>
-                        <option value="cuda">{t("settings.deviceCuda")}</option>
+                        {cudaSupported && <option value="cuda">{t("settings.deviceCuda")}</option>}
                         <option value="cpu">{t("settings.deviceCpu")}</option>
                       </select>
                     </label>

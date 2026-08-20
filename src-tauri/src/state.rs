@@ -122,6 +122,7 @@ pub struct StatusReport {
     pub local_device: String,
     pub cuda_runtime: CudaRuntimeReport,
     pub worker_install: WorkerInstallReport,
+    pub cuda_supported: bool,
     pub provider_settings: crate::providers::ProviderSettings,
 }
 
@@ -234,6 +235,7 @@ impl AppStateInner {
             local_device: self.provider_settings.local_device.clone(),
             cuda_runtime: self.cuda_runtime.clone(),
             worker_install: self.worker_install.clone(),
+            cuda_supported: !cfg!(target_os = "macos"),
             provider_settings: self.provider_settings.clone(),
         }
     }

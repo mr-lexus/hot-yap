@@ -66,6 +66,7 @@ const EMPTY_STATUS: StatusReport = {
     progress: null,
     error: null,
   },
+  cuda_supported: true,
   provider_settings: {
     stt_provider: "local",
     text_provider: "none",

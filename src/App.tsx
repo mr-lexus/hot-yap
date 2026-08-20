@@ -55,6 +55,7 @@ const DEFAULT_STATUS: StatusReport = {
     progress: null,
     error: null,
   },
+  cuda_supported: true,
   provider_settings: {
     stt_provider: "local",
     text_provider: "none",
@@ -390,7 +391,7 @@ export default function App() {
         </div>
       </header>
 
-      {!cloudTranscription && status.cuda_runtime.checked && !status.cuda_runtime.runtime_ok && (
+      {!cloudTranscription && status.cuda_supported && status.cuda_runtime.checked && !status.cuda_runtime.runtime_ok && (
         <section className="card card-warning cuda-banner">
           <div className="cuda-banner-copy">
             <p className="warn-msg">{status.cuda_runtime.missing.length > 0 ? t("cuda.banner") : status.cuda_runtime.error ?? t("cuda.banner")}</p>
@@ -586,7 +587,7 @@ export default function App() {
                   }}
                 >
                   <option value="auto">{t("settings.deviceAuto")}</option>
-                  <option value="cuda">{t("settings.deviceCuda")}</option>
+                  {status.cuda_supported && <option value="cuda">{t("settings.deviceCuda")}</option>}
                   <option value="cpu">{t("settings.deviceCpu")}</option>
                 </select>
               </label>
@@ -646,6 +647,7 @@ export default function App() {
         open={settingsOpen}
         accent={accent}
         iconPreference={iconPreference}
+        cudaSupported={status.cuda_supported}
         onAccentChange={setAccent}
         onIconPreferenceChange={setIconPreference}
         onClose={() => setSettingsOpen(false)}

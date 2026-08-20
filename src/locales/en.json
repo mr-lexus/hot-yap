@@ -205,7 +205,7 @@
     "instruction": "Processing instruction",
     "localHint": "Audio is processed locally by the current Whisper model.",
     "deviceSelect": "Compute Device",
-    "deviceAuto": "Auto (CUDA, fallback CPU)",
+    "deviceAuto": "Auto (best available)",
     "deviceCuda": "CUDA (NVIDIA GPU)",
     "deviceCpu": "CPU (Processor)",
     "credentialNote": "API keys go directly to the Rust process and are saved in the operating-system credential store. Saved values are never returned to the WebView.",
