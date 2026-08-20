@@ -193,7 +193,9 @@ jobs:
       - name: Compute worker checksum (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: echo "WORKER_SHA256=$(sha256sum "src-tauri/binaries/hotyap-worker-${{ matrix.target }}" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+        run: |
+          HASH=$(python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "src-tauri/binaries/hotyap-worker-${{ matrix.target }}")
+          echo "WORKER_SHA256=$HASH" >> "$GITHUB_ENV"
 
       - name: Compute worker checksum (Windows)
         if: runner.os == 'Windows'

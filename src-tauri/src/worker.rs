@@ -138,9 +138,11 @@ fn worker_release_repo() -> &'static str {
 }
 
 /// Expected SHA-256 of the release worker, embedded by the CI build. Absent in
-/// dev builds. Used to reject a corrupted or truncated download.
+/// dev builds and when the CI failed to compute it (treated as "no hash" so a
+/// missing checksum never blocks the download). Used to reject a corrupted or
+/// truncated download.
 fn worker_sha256() -> Option<&'static str> {
-    option_env!("HOTYAP_WORKER_SHA256")
+    option_env!("HOTYAP_WORKER_SHA256").filter(|value| !value.trim().is_empty())
 }
 
 /// URL of the worker sidecar for this platform and release.
