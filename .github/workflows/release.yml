@@ -162,19 +162,29 @@ jobs:
             $output | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } |
               Where-Object { $_.id -eq $id } | Select-Object -Last 1
           }
+          # The worker's stderr is captured into $output, so it must be
+          # printed explicitly or a failed smoke test hides its diagnostics.
+          function Show-WorkerOutput {
+            Write-Output "---- bundled worker output (stdout+stderr) ----"
+            $output | ForEach-Object { Write-Output $_ }
+            Write-Output "-----------------------------------------------"
+          }
           $dl = Get-Reply 1
           if (-not $dl.ok) {
+            Show-WorkerOutput
             Write-Error "CUDA runtime download failed: $($dl.error)"
             exit 1
           }
           $resp = Get-Reply 2
           if (-not $resp.ok -or -not $resp.runtime_ok) {
+            Show-WorkerOutput
             Write-Error "CUDA runtime verification failed: dlls=$($resp.dlls | ConvertTo-Json -Compress) error=$($resp.error)"
             exit 1
           }
           Write-Host "CUDA runtime verified: $($resp.dlls | ConvertTo-Json -Compress)"
           $vad = Get-Reply 3
           if (-not $vad.ok -or -not $vad.session_ok) {
+            Show-WorkerOutput
             Write-Error "VAD/onnxruntime verification failed: error=$($vad.error)"
             exit 1
           }
