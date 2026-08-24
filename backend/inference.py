@@ -123,10 +123,240 @@ def _prepare_cuda_runtime(models_root=None):
         os.environ["PATH"] = str(runtime_dir) + os.pathsep + path
 
 
+class ModelLoadError(RuntimeError):
+    """A model-load failure carrying a user-facing diagnosis.
+
+    `kind` is a stable machine-readable identifier (forwarded to the Rust side
+    as `error_kind`); `details` holds structured facts (free memory, model
+    size) so the caller can log or display them without re-parsing the text.
+    """
+
+    def __init__(self, message: str, kind: str = "model_load_failed", details=None):
+        super().__init__(message)
+        self.kind = kind
+        self.details = details or {}
+
+
+# Exception texts that mean the HOST could not allocate memory. These appear
+# both on pure-CPU loads (MKL) and during CUDA loads (cuBLAS/CT2 stage-in
+# buffers are host allocations too), so they take priority over GPU-OOM text.
+_SYSTEM_OOM_SIGNATURES = (
+    "mkl_malloc",
+    "failed to allocate",
+    "std::bad_alloc",
+    "bad_alloc",
+    "cannot allocate memory",
+)
+
+# Texts that mean the DEVICE (VRAM) ran out during a CUDA-stage attempt.
+_GPU_OOM_SIGNATURES = (
+    "out of memory",
+    "cuda_error_memory_allocation",
+)
+
+
+def classify_load_error(exc: BaseException, stage: str) -> str:
+    """Map a model-load exception to a stable diagnostic kind.
+
+    `stage` is 'cuda' or 'cpu': identical 'out of memory' text means VRAM
+    exhaustion on the GPU stage but host-RAM exhaustion once the CPU/MKL path
+    is reached.
+    """
+    text = str(exc).lower()
+    if any(sig in text for sig in _SYSTEM_OOM_SIGNATURES):
+        return "system_out_of_memory"
+    if stage == "cuda" and any(sig in text for sig in _GPU_OOM_SIGNATURES):
+        return "gpu_out_of_memory"
+    if "nvcuda" in text or "no cuda" in text or "cuda driver" in text:
+        return "cuda_unavailable"
+    return "model_load_failed"
+
+
+_KIND_PRIORITY = ("system_out_of_memory", "gpu_out_of_memory", "cuda_unavailable")
+
+
+def dominant_kind(attempts) -> str:
+    """The single most informative kind across every failed load attempt.
+
+    Host-memory failures win over GPU ones on purpose: when MKL cannot
+    allocate, the real bottleneck is system RAM regardless of what CUDA said.
+    """
+    kinds = {classify_load_error(exc, stage) for stage, _, exc in attempts}
+    for preferred in _KIND_PRIORITY:
+        if preferred in kinds:
+            return preferred
+    return "model_load_failed"
+
+
+def system_memory():
+    """Best-effort memory facts in bytes, or {} when the platform is unknown.
+
+    On Windows the meaningful pair is `commit_limit` / `commit_free`: a fresh
+    allocation needs commit headroom (RAM + page file), not physical free RAM
+    — which is exactly why loads fail with gigabytes of RAM still 'free'.
+    """
+    facts = {}
+    if sys.platform == "win32":
+        import ctypes
+
+        class _MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_uint64),
+                ("ullAvailPhys", ctypes.c_uint64),
+                ("ullTotalPageFile", ctypes.c_uint64),
+                ("ullAvailPageFile", ctypes.c_uint64),
+                ("ullTotalVirtual", ctypes.c_uint64),
+                ("ullAvailVirtual", ctypes.c_uint64),
+                ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ]
+
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        try:
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                facts["physical_total"] = status.ullTotalPhys
+                facts["physical_free"] = status.ullAvailPhys
+                facts["commit_limit"] = status.ullTotalPageFile
+                facts["commit_free"] = status.ullAvailPageFile
+        except Exception as e:  # pragma: no cover - defensive, never fatal
+            log(f"cannot query system memory: {e}")
+    elif sys.platform == "linux":
+        values = {}
+        try:
+            with open("/proc/meminfo", encoding="ascii") as fh:
+                for line in fh:
+                    key, _, rest = line.partition(":")
+                    values[key.strip()] = int(rest.strip().split()[0]) * 1024
+            facts["physical_total"] = values.get("MemTotal")
+            facts["physical_free"] = values.get("MemAvailable")
+        except (OSError, ValueError):
+            return {}
+    return {k: v for k, v in facts.items() if v}
+
+
+def gpu_memory():
+    """(vram_total, vram_free) of the first GPU via nvidia-smi, or {}."""
+    import subprocess
+
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=flags,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if out.returncode != 0 or not out.stdout.strip():
+        return {}
+    try:
+        total_mib, free_mib = out.stdout.strip().splitlines()[0].split(",")[:2]
+        return {
+            "vram_total": int(total_mib.strip()) * 1024 * 1024,
+            "vram_free": int(free_mib.strip()) * 1024 * 1024,
+        }
+    except (ValueError, IndexError):
+        return {}
+
+
+def _fmt_gb(num_bytes) -> str:
+    return f"{num_bytes / (1024 ** 3):.1f} GB"
+
+
+def _collect_facts(model_bytes: int) -> dict:
+    facts = {"model_bytes": model_bytes}
+    facts.update(system_memory())
+    facts.update(gpu_memory())
+    return facts
+
+
+def _short_reason(exc: BaseException, limit: int = 140) -> str:
+    text = " ".join(str(exc).split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _compose_failure_message(attempts, facts: dict) -> str:
+    """Turn failed load attempts + memory facts into an actionable diagnosis.
+
+    `attempts` is a list of (stage, compute_type, exception) tuples, in try
+    order; `facts` comes from `_collect_facts`.
+    """
+    kind = dominant_kind(attempts)
+    model_bytes = facts.get("model_bytes") or 0
+
+    if kind == "system_out_of_memory":
+        headline = "The computer ran out of free memory while loading the model."
+    elif kind == "gpu_out_of_memory":
+        headline = "The GPU ran out of video memory (VRAM) while loading the model."
+    elif kind == "cuda_unavailable":
+        headline = "No working CUDA GPU was found for this model."
+    else:
+        headline = "The model failed to load."
+
+    lines = [headline]
+    for stage, c_type, exc in attempts:
+        label = "GPU (CUDA)" if stage == "cuda" else "CPU"
+        lines.append(f"- {label}, {c_type}: {_short_reason(exc)}.")
+
+    fact_bits = []
+    if model_bytes:
+        fact_bits.append(f"model size {_fmt_gb(model_bytes)}")
+    if facts.get("commit_free") is not None and facts.get("commit_limit"):
+        fact_bits.append(
+            f"free memory for new programs {_fmt_gb(facts['commit_free'])} "
+            f"of {_fmt_gb(facts['commit_limit'])} (RAM + page file)"
+        )
+    elif facts.get("physical_free") is not None and facts.get("physical_total"):
+        fact_bits.append(f"free RAM {_fmt_gb(facts['physical_free'])} of {_fmt_gb(facts['physical_total'])}")
+    if attempts and any(stage == "cuda" for stage, _, _ in attempts):
+        if facts.get("vram_free") is not None and facts.get("vram_total"):
+            fact_bits.append(f"free VRAM {_fmt_gb(facts['vram_free'])} of {_fmt_gb(facts['vram_total'])}")
+    if fact_bits:
+        lines.append("Measured: " + "; ".join(fact_bits) + ".")
+
+    advice = []
+    if kind == "system_out_of_memory":
+        advice.append("Close memory-heavy apps (browser tabs, WSL/Docker VMs, games) and press Start model again.")
+        if sys.platform == "win32":
+            advice.append(
+                "Enlarge the virtual memory (page file): Settings > System > About > Advanced system settings "
+                "> Performance settings > Advanced > Virtual memory, or set it to automatic, then restart the PC."
+            )
+        else:
+            advice.append("Add swap space (or enlarge the swap file) and try again.")
+        if model_bytes and facts.get("commit_free") is not None:
+            # Rough sizing rule: the weights need their own footprint (plus
+            # activations) as fresh commit charge. If that does not fit, say so.
+            needs_smaller_model = model_bytes * 1.5 > facts["commit_free"]
+        else:
+            needs_smaller_model = model_bytes >= 900_000_000
+        if needs_smaller_model:
+            advice.append("Choose a smaller model in the Models panel - this one barely fits in free memory.")
+        advice.append("Or pick a cloud transcription provider in Settings.")
+    else:
+        if "gpu_out_of_memory" in {classify_load_error(exc, stage) for stage, _, exc in attempts}:
+            advice.append(
+                "Free up GPU memory (close GPU-accelerated apps such as Chrome hardware acceleration or games), "
+                "or set Device to CPU in Settings, or choose a smaller model."
+            )
+        if kind == "cuda_unavailable":
+            advice.append("Install or update the NVIDIA driver, or set Device to CPU in Settings.")
+    if advice:
+        lines.append("What you can do:")
+        lines.extend(f"- {item}" for item in advice)
+    return "\n".join(lines)
+
+
 def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, device="auto"):
     """Load the model according to the requested device preference ('auto', 'cuda', 'cpu').
 
     Returns (device, compute_type).
+    Raises ModelLoadError with a user-facing diagnosis when everything fails;
+    the exception carries `.kind` and `.details` (see ModelLoadError).
     """
     path = _model_path(model_dir, ct2_subdir)
     model_bin = path / "model.bin"
@@ -134,6 +364,7 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
         raise FileNotFoundError(
             f"model files not found at {path}. Download the model first."
         )
+    model_bytes = model_bin.stat().st_size
 
     _prepare_cuda_runtime(models_root)
 
@@ -141,6 +372,7 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
 
     t0 = time.monotonic()
     req_device = (device or "auto").lower()
+    attempts = []  # (stage, compute_type, exception), in try order
 
     if req_device in ("auto", "cuda"):
         try:
@@ -165,7 +397,6 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
             if not cuda_candidates:
                 cuda_candidates = ["float16", "int8_float16", "float32"]
 
-            cuda_error = None
             for c_type in cuda_candidates:
                 try:
                     log(f"Attempting to load model on CUDA ({c_type})...")
@@ -177,13 +408,24 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
                     return "cuda", c_type
                 except Exception as e:
                     log(f"CUDA model load with compute_type={c_type} failed: {e}")
-                    cuda_error = e
+                    attempts.append(("cuda", c_type, e))
 
             if req_device == "cuda":
-                raise RuntimeError(f"CUDA model load failed: {cuda_error}") from cuda_error
-            log(f"CUDA model load failed ({cuda_error}); falling back to CPU (int8)")
+                raise ModelLoadError(
+                    _compose_failure_message(attempts, _collect_facts(model_bytes)),
+                    dominant_kind(attempts),
+                    _collect_facts(model_bytes),
+                ) from attempts[-1][2]
+            log(f"CUDA model load failed ({attempts[-1][2]}); falling back to CPU (int8)")
         elif req_device == "cuda":
-            raise RuntimeError("CUDA device was requested, but no CUDA GPU was detected.")
+            raise ModelLoadError(
+                "No CUDA-capable GPU was detected, but Device is set to CUDA.\n"
+                "What you can do:\n"
+                "- Install or update the NVIDIA driver, or\n"
+                "- Set Device to Auto or CPU in Settings.",
+                "cuda_unavailable",
+                _collect_facts(model_bytes),
+            )
 
     log("loading model on CPU (int8)...")
     try:
@@ -194,7 +436,12 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
         log(f"model loaded on CPU in {time.monotonic()-t0:.1f}s")
         return "cpu", "int8"
     except Exception as e:
-        raise RuntimeError(f"model load failed: {e}") from e
+        attempts.append(("cpu", "int8", e))
+        raise ModelLoadError(
+            _compose_failure_message(attempts, _collect_facts(model_bytes)),
+            dominant_kind(attempts),
+            _collect_facts(model_bytes),
+        ) from e
 
 
 def _load_faster_whisper(path: Path, device: str, compute_type: str):

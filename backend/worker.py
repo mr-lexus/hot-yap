@@ -282,13 +282,19 @@ def cmd_delete(req):
 def cmd_load(req):
     import inference
 
-    device, compute_type = inference.load_model(
-        state,
-        req.get("model_dir"),
-        req.get("ct2_subdir"),
-        req.get("models_root"),
-        device=req.get("device", "auto"),
-    )
+    try:
+        device, compute_type = inference.load_model(
+            state,
+            req.get("model_dir"),
+            req.get("ct2_subdir"),
+            req.get("models_root"),
+            device=req.get("device", "auto"),
+        )
+    except inference.ModelLoadError as e:
+        # Already a full user-facing diagnosis: forward it verbatim together
+        # with the machine-readable kind and measured facts.
+        log(f"model load failed ({e.kind}):\n{traceback.format_exc()}")
+        return {"ok": False, "error": str(e), "error_kind": e.kind, **e.details}
     return {"event": "model_loaded", "device": device, "compute_type": compute_type}
 
 
