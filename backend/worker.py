@@ -502,6 +502,7 @@ def cmd_download_cuda_runtime(req):
         raise RuntimeError("CUDA runtime components are only needed on Windows")
 
     import shutil
+    import urllib.error
     import urllib.request
     import zipfile
 
@@ -535,30 +536,73 @@ def cmd_download_cuda_runtime(req):
         tmp_path = runtime_dir / f"{CUDA_RUNTIME_WHEEL}.whl"
         log(f"downloading CUDA runtime from {url}")
 
-        def _fetch_wheel() -> None:
-            request = urllib.request.Request(
-                url, headers={"User-Agent": f"hotyap-worker/{VERSION}"}
-            )
-            downloaded = 0
-            with urllib.request.urlopen(request, timeout=120) as resp, open(tmp_path, "wb") as out:
-                content_type = resp.headers.get("Content-Type", "?")
-                while True:
-                    chunk = resp.read(1 << 16)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    downloaded += len(chunk)
-                    if total:
-                        _emit_cuda_progress(req_id, downloaded / total)
+        # Networks and proxies sometimes drop large transfers mid-stream (CI
+        # runners observed cutting this exact file at a fixed offset). Resume
+        # with HTTP Range from the last byte instead of restarting, and only
+        # accept the payload once it is complete AND starts with zip magic.
+        MAX_ROUNDS = 10
+        for round_no in range(1, MAX_ROUNDS + 1):
+            offset = tmp_path.stat().st_size if tmp_path.exists() else 0
+            if total and offset == total:
+                break
+            if total and offset > total:
+                tmp_path.unlink(missing_ok=True)
+                continue
+
+            headers = {"User-Agent": f"hotyap-worker/{VERSION}"}
+            resumed = offset > 0
+            if resumed:
+                headers["Range"] = f"bytes={offset}-"
+                log(f"resuming CUDA runtime download at byte {offset} of {total} (round {round_no})")
+
+            request = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(request, timeout=120) as resp:
+                    content_type = resp.headers.get("Content-Type", "?")
+                    if resumed and resp.status != 206:
+                        # Server ignored the Range header: restart cleanly.
+                        tmp_path.unlink(missing_ok=True)
+                        resumed = False
+                    position = 0
+                    mode = "ab" if resumed else "wb"
+                    with open(tmp_path, mode) as out:
+                        while True:
+                            chunk = resp.read(1 << 16)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            position += len(chunk)
+                            if total:
+                                done_now = (offset if resumed else 0) + position
+                                _emit_cuda_progress(req_id, min(done_now, total) / total)
+            except urllib.error.HTTPError as exc:
+                if resumed and exc.code == 416:
+                    tmp_path.unlink(missing_ok=True)
+                    continue
+                raise
+            except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as exc:
+                if round_no == MAX_ROUNDS:
+                    raise RuntimeError(
+                        f"CUDA runtime download failed after {round_no} attempts: {exc}"
+                    ) from exc
+                log(f"CUDA runtime download interrupted ({exc}); will resume")
+                continue
+
+            downloaded = tmp_path.stat().st_size
+            if total and downloaded < total:
+                if round_no == MAX_ROUNDS:
+                    raise RuntimeError(
+                        f"truncated download: {downloaded} of {total} bytes after "
+                        f"{round_no} attempts (content-type {content_type})"
+                    )
+                log(f"connection closed early at {downloaded} of {total} bytes; resuming")
+                continue
+
             # A proxy or captive portal can answer with an HTML page and a
             # 200 status; validate before treating the payload as a zip so
             # the failure says WHAT arrived instead of a bare BadZipFile.
             if downloaded == 0:
                 raise RuntimeError(f"downloaded 0 bytes (HTTP content-type {content_type})")
-            if total and downloaded != total:
-                raise RuntimeError(
-                    f"truncated download: {downloaded} of {total} bytes (content-type {content_type})"
-                )
             with open(tmp_path, "rb") as check:
                 magic = check.read(4)
             if magic != b"PK\x03\x04":
@@ -569,15 +613,7 @@ def cmd_download_cuda_runtime(req):
                     f"{downloaded} bytes, content-type {content_type}, "
                     f"starts with {sample!r}"
                 )
-
-        try:
-            _fetch_wheel()
-        except zipfile.BadZipFile:
-            raise
-        except RuntimeError:
-            # One retry: single flaky response should not fail the load.
-            log("CUDA runtime download produced an invalid payload; retrying once")
-            _fetch_wheel()
+            break
 
         log(f"extracting CUDA runtime DLLs from {tmp_path.name}")
         with zipfile.ZipFile(tmp_path) as archive:
