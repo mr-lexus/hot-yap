@@ -534,19 +534,50 @@ def cmd_download_cuda_runtime(req):
         total = int(wheel.get("size") or 0)
         tmp_path = runtime_dir / f"{CUDA_RUNTIME_WHEEL}.whl"
         log(f"downloading CUDA runtime from {url}")
-        request = urllib.request.Request(
-            url, headers={"User-Agent": f"hotyap-worker/{VERSION}"}
-        )
-        downloaded = 0
-        with urllib.request.urlopen(request, timeout=120) as resp, open(tmp_path, "wb") as out:
-            while True:
-                chunk = resp.read(1 << 16)
-                if not chunk:
-                    break
-                out.write(chunk)
-                downloaded += len(chunk)
-                if total:
-                    _emit_cuda_progress(req_id, downloaded / total)
+
+        def _fetch_wheel() -> None:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": f"hotyap-worker/{VERSION}"}
+            )
+            downloaded = 0
+            with urllib.request.urlopen(request, timeout=120) as resp, open(tmp_path, "wb") as out:
+                content_type = resp.headers.get("Content-Type", "?")
+                while True:
+                    chunk = resp.read(1 << 16)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        _emit_cuda_progress(req_id, downloaded / total)
+            # A proxy or captive portal can answer with an HTML page and a
+            # 200 status; validate before treating the payload as a zip so
+            # the failure says WHAT arrived instead of a bare BadZipFile.
+            if downloaded == 0:
+                raise RuntimeError(f"downloaded 0 bytes (HTTP content-type {content_type})")
+            if total and downloaded != total:
+                raise RuntimeError(
+                    f"truncated download: {downloaded} of {total} bytes (content-type {content_type})"
+                )
+            with open(tmp_path, "rb") as check:
+                magic = check.read(4)
+            if magic != b"PK\x03\x04":
+                with open(tmp_path, "rb") as check:
+                    sample = check.read(120)
+                raise RuntimeError(
+                    "payload is not a wheel/zip: "
+                    f"{downloaded} bytes, content-type {content_type}, "
+                    f"starts with {sample!r}"
+                )
+
+        try:
+            _fetch_wheel()
+        except zipfile.BadZipFile:
+            raise
+        except RuntimeError:
+            # One retry: single flaky response should not fail the load.
+            log("CUDA runtime download produced an invalid payload; retrying once")
+            _fetch_wheel()
 
         log(f"extracting CUDA runtime DLLs from {tmp_path.name}")
         with zipfile.ZipFile(tmp_path) as archive:
