@@ -37,7 +37,7 @@
     <link rel="icon" type="image/png" href="./assets/favicon-dark.png" media="(prefers-color-scheme: light)" />
     <link rel="icon" type="image/png" href="./assets/favicon-light.png" media="(prefers-color-scheme: dark)" />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="preload" href="./assets/mascot-light.png" as="image" />
+    <link rel="preload" href="./assets/mascot-light.webp" as="image" type="image/webp" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="HotYap" />
     <meta property="og:locale" content="en_US" />
@@ -101,7 +101,7 @@
     <header class="site-header shell">
       <nav class="nav" aria-label="Main navigation">
         <a class="brand" href="./" aria-label="HotYap home">
-          <img src="./assets/mascot-light.png" alt="" width="48" height="48" />
+          <img src="./assets/mascot-light.webp" alt="" width="48" height="48" decoding="async" />
           <span class="brand-copy"
             ><strong>HOT/YAP</strong><span>LOCAL ASR // ALPHA</span></span
           >
@@ -140,7 +140,7 @@
             <span class="alpha-chip">0.1 ALPHA</span>
           </div>
           <h1>
-            <span class="hero-word">Talk.</span
+            <span class="hero-word">Yap.</span
             ><span class="hero-word hot">Drop.</span
             ><span class="hero-word outline">Paste.</span>
           </h1>
@@ -150,6 +150,10 @@
             >
             Hold a shortcut, say “fix useEffect in TypeScript,” release, and the
             clean transcript lands in your clipboard.
+          </p>
+          <p class="yap-note">
+            “Yap” is HotYap for “dictate.” The wolf cub supplies the attitude; the
+            speech recognition does the serious work.
           </p>
           <div class="actions">
             <a
@@ -177,25 +181,25 @@
           <div class="beast-card" data-tilt>
             <div class="mad-label">Not another polite<b>dictator.</b></div>
             <img
-              src="./assets/mascot-light.png"
-              alt="The wild HotYap dog mascot"
+              src="./assets/mascot-light.webp"
+              alt="The wild HotYap wolf cub mascot"
               width="956"
               height="966"
+              decoding="async"
             />
           </div>
           <div class="burst">YAP<br />TO<br />TEXT!</div>
           <div class="speech-bubble">“git rebase, not гит ребейс.”</div>
-          <div class="recorder-card">
-            <span class="mic-orb" aria-hidden="true"
-              ><svg viewBox="0 0 24 24">
-                <rect x="9" y="3" width="6" height="12" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></svg
-            ></span>
-            <span class="rec-copy"
-              ><small>RECORDING // LIVE</small
-              ><strong>Russian + technical English</strong></span
-            >
+          <div class="recorder-card" aria-label="HotYap recording overlay preview">
+            <span class="overlay-wolf" aria-hidden="true">
+              <img src="./assets/mascot-light.webp" alt="" width="52" height="52" />
+            </span>
+            <span class="rec-copy">
+              <strong>Recording</strong>
+              <small>Release the shortcut to process</small>
+            </span>
             <span class="wave" aria-hidden="true"
+              ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
               ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
               ><i></i><i></i
             ></span>
@@ -227,48 +231,51 @@
           <a
             class="proof-card proof-main"
             href="./landing/screenshots/hotyap-app.png"
-            target="_blank"
-            rel="noreferrer"
+            data-lightbox
+            data-lightbox-caption="Full HotYap desktop application"
           >
             <img
-              src="./assets/screenshots/hotyap-app.png"
+              src="./assets/screenshots/hotyap-app.webp"
               alt="Full HotYap desktop application window"
               width="1120"
               height="768"
-              loading="eager"
+              loading="lazy"
+              decoding="async"
             />
-            <span>FULL DESKTOP APP // OPEN IMAGE ↗</span>
+            <span>FULL DESKTOP APP // EXPAND ↗</span>
           </a>
           <div class="proof-stack">
             <a
               class="proof-card proof-detail proof-detail-top"
-              href="./landing/screenshots/hotyap-app.png"
-              target="_blank"
-              rel="noreferrer"
+              href="./landing/screenshots/hotyap-app-cloud.png"
+              data-lightbox
+              data-lightbox-caption="HotYap using the Deepgram cloud provider"
             >
               <img
-                src="./assets/screenshots/hotyap-app.png"
-                alt="HotYap speech recognition provider and recording controls"
-                width="1120"
-                height="768"
+                src="./assets/screenshots/hotyap-app-cloud.webp"
+                alt="HotYap interface in cloud transcription mode"
+                width="1123"
+                height="663"
                 loading="lazy"
+                decoding="async"
               />
-              <span>RECORDING CONTROL</span>
+              <span>CLOUD MODE</span>
             </a>
             <a
               class="proof-card proof-detail proof-detail-bottom"
-              href="./landing/screenshots/hotyap-app.png"
-              target="_blank"
-              rel="noreferrer"
+              href="./landing/screenshots/hotyap-models.png"
+              data-lightbox
+              data-lightbox-caption="Local Whisper model library and downloads"
             >
               <img
-                src="./assets/screenshots/hotyap-app.png"
-                alt="HotYap transcription progress and session status"
-                width="1120"
-                height="768"
+                src="./assets/screenshots/hotyap-models.webp"
+                alt="HotYap local model library with installed and available models"
+                width="1123"
+                height="663"
                 loading="lazy"
+                decoding="async"
               />
-              <span>LIVE TRANSCRIPTION</span>
+              <span>LOCAL MODEL LIBRARY</span>
             </a>
           </div>
         </div>
@@ -388,7 +395,7 @@
           <h2 class="section-title" id="real-app-title">
             Quiet UI.<br /><em>Loud result.</em>
           </h2>
-          <div class="sticker-note">YES, THE DOG IS SUPERVISING.</div>
+          <div class="sticker-note">YES, THE WOLF CUB IS SUPERVISING.</div>
           <div class="product-points">
             <div class="product-point">
               <b>✓</b><span>Live audio level and transcription progress.</span>
@@ -408,17 +415,18 @@
         </div>
         <a
           class="screen-wrap"
-          href="./landing/screenshots/hotyap-app.png"
-          target="_blank"
-          rel="noreferrer"
+          href="./landing/screenshots/hotyap-settings.png"
+          data-lightbox
+          data-lightbox-caption="HotYap appearance and speech-recognition settings"
           data-reveal
         >
           <img
-            src="./assets/screenshots/hotyap-app.png"
-            alt="HotYap desktop interface showing voice transcription progress and clipboard output"
-            width="1120"
-            height="768"
+            src="./assets/screenshots/hotyap-settings.webp"
+            alt="HotYap settings for appearance, app icon, and speech provider"
+            width="1123"
+            height="663"
             loading="lazy"
+            decoding="async"
           />
         </a>
       </section>
@@ -524,11 +532,12 @@
 
       <section class="final-cta shell" data-reveal>
         <img
-          src="./assets/mascot-light.png"
+          src="./assets/mascot-light.webp"
           alt=""
           width="170"
           height="170"
           loading="lazy"
+          decoding="async"
         />
         <h2>Stop typing.<br /><span>Start yapping.</span></h2>
         <p>
@@ -548,6 +557,16 @@
         </div>
       </section>
     </main>
+
+    <dialog class="image-lightbox" data-lightbox-dialog aria-label="Image preview">
+      <div class="lightbox-frame">
+        <img data-lightbox-image alt="" />
+        <div class="lightbox-bar">
+          <span data-lightbox-caption></span>
+          <button class="lightbox-close" type="button" data-lightbox-close aria-label="Close">×</button>
+        </div>
+      </div>
+    </dialog>
 
     <footer class="site-footer">
       <div class="shell footer-row">
