@@ -8,7 +8,9 @@ const env =
     }
   ).process?.env ?? {};
 const repository = env.GITHUB_REPOSITORY?.split("/")[1] ?? "hot-yap";
-const base = env.PAGES_BASE ?? (env.GITHUB_ACTIONS ? `/${repository}/` : "/");
+// Keep local previews on the same sub-path as the GitHub Pages deployment.
+// An explicit PAGES_BASE still allows a root-mounted preview when needed.
+const base = env.PAGES_BASE ?? `/${repository}/`;
 
 const root = fileURLToPath(new URL("./website", import.meta.url));
 const publicDir = fileURLToPath(new URL("./public", import.meta.url));

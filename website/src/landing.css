@@ -393,21 +393,6 @@ h1 em {
   color: #aaa4b2;
   margin-top: 20px;
 }
-.motion-toggle {
-  position: absolute;
-  bottom: -13px;
-  right: 0;
-  font: 9px var(--mono);
-  border: 0;
-  background: none;
-  color: #98939f;
-  cursor: pointer;
-  padding: 5px;
-  border-bottom: 1px dotted #56505f;
-}
-.motion-toggle:hover {
-  color: var(--paper);
-}
 [data-motion-paused] .beast-card img,
 [data-motion-paused] .recording-preview,
 [data-motion-paused] .wave i {
@@ -1292,10 +1277,6 @@ details p {
     font-size: 8px;
     margin-top: 14px;
   }
-  .motion-toggle {
-    bottom: 0;
-    font-size: 8px;
-  }
   .principles {
     font-size: 8px;
     padding-block: 20px;
@@ -1705,14 +1686,4 @@ body::after {
   body::after { height: 1px; }
   .button:hover,
   .nav-download:hover { box-shadow: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  html:not([data-motion-state="on"]) .ambient-canvas { display: none; }
-  body::after { box-shadow: none; }
-  .button,
-  .nav-download { transform: none !important; transition: none; }
-  .button::before,
-  .nav-download::before,
-  .button.is-clicked::after,
-  .nav-download.is-clicked::after { animation: none; }
 }

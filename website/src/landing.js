@@ -20,10 +20,19 @@ const ambientPoints = Array.from({ length: 34 }, (_, index) => ({
   phase: index * 0.73,
 }));
 let ambientFrame = 0;
+let ambientLastDraw = 0;
 let ambientWidth = 0;
 let ambientHeight = 0;
+let ambientScroll = 0;
 const resizeAmbientCanvas = () => {
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  // Keep the decorative layer below a 1600px render width. It stays sharp
+  // enough for thin lines while avoiding a multi-million-pixel repaint on
+  // high-density displays.
+  const ratio = Math.min(
+    window.devicePixelRatio || 1,
+    1.5,
+    1600 / Math.max(window.innerWidth, 1),
+  );
   ambientWidth = window.innerWidth;
   ambientHeight = window.innerHeight;
   ambientCanvas.width = ambientWidth * ratio;
@@ -34,10 +43,17 @@ const resizeAmbientCanvas = () => {
 };
 /** @param {number} time */
 const drawAmbientCanvas = (time) => {
-  if (!ambientContext || motionPaused) {
+  if (!ambientContext || motionPaused || document.hidden) {
     ambientFrame = 0;
     return;
   }
+  // The background only needs a calm 30fps rhythm. The rest of the page can
+  // still use native transitions and scroll-linked effects at full refresh.
+  if (time - ambientLastDraw < 1000 / 30) {
+    ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
+    return;
+  }
+  ambientLastDraw = time;
   const ctx = ambientContext;
   const seconds = time / 1000;
   ctx.clearRect(0, 0, ambientWidth, ambientHeight);
@@ -51,7 +67,10 @@ const drawAmbientCanvas = (time) => {
   ctx.fillRect(0, 0, ambientWidth, ambientHeight);
   const points = ambientPoints.map((point) => ({
     x: point.x * ambientWidth + Math.sin(seconds * 0.16 + point.phase) * 13,
-    y: point.y * ambientHeight + Math.cos(seconds * 0.13 + point.phase) * 10,
+    y:
+      point.y * ambientHeight +
+      Math.cos(seconds * 0.13 + point.phase) * 10 -
+      (ambientScroll - 0.5) * 34,
     radius: point.radius,
   }));
   ctx.lineWidth = 0.6;
@@ -130,26 +149,14 @@ lightbox?.addEventListener("close", () => {
   activeLightboxTrigger = null;
 });
 
-// Keep decorative motion optional and respect the system preference.
+// Decorative motion is built into the page, so the landing stays self-contained
+// and does not need a query flag or a settings control.
 /** @type {HTMLElement | null} */
 const stage = document.querySelector("[data-pointer-stage]");
 /** @type {HTMLElement | null} */
 const tiltCard = stage?.querySelector("[data-tilt]") ?? null;
-/** @type {HTMLButtonElement | null} */
-const motionButton = document.querySelector("[data-motion-toggle]");
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
-const russian = document.documentElement.lang === "ru";
-/** @type {boolean | null} */
-let motionPreference = null;
-try {
-  const savedMotion = sessionStorage.getItem("hotyap:motion");
-  if (savedMotion === "on" || savedMotion === "off")
-    motionPreference = savedMotion === "off";
-} catch {
-  /* Motion still works when storage is unavailable. */
-}
-let motionPaused = motionPreference ?? reducedMotion.matches;
+const motionPaused = false;
 let pointerFrame = 0;
 /** @type {Set<Animation>} */
 const entranceAnimations = new Set();
@@ -164,19 +171,8 @@ const updateMotion = () => {
   document.documentElement.dataset.motionState = paused ? "off" : "on";
   if (paused) entranceAnimations.forEach((animation) => animation.finish());
   stage?.toggleAttribute("data-motion-paused", paused);
-  if (motionButton) {
-    motionButton.hidden = false;
-    motionButton.setAttribute("aria-pressed", String(paused));
-    motionButton.textContent = russian
-      ? paused
-        ? "Включить анимацию"
-        : "Остановить анимацию"
-      : paused
-        ? "Resume animation"
-        : "Pause animation";
-  }
   if (paused) resetTilt();
-  if (paused) {
+  if (paused || document.hidden) {
     window.cancelAnimationFrame(ambientFrame);
     ambientFrame = 0;
     ambientContext?.clearRect(0, 0, ambientWidth, ambientHeight);
@@ -184,20 +180,7 @@ const updateMotion = () => {
     ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
   }
 };
-motionButton?.addEventListener("click", () => {
-  motionPaused = !motionPaused;
-  motionPreference = motionPaused;
-  try {
-    sessionStorage.setItem("hotyap:motion", motionPaused ? "off" : "on");
-  } catch {
-    /* Optional preference. */
-  }
-  updateMotion();
-});
-reducedMotion.addEventListener("change", () => {
-  motionPaused = motionPreference ?? reducedMotion.matches;
-  updateMotion();
-});
+document.addEventListener("visibilitychange", updateMotion);
 stage?.addEventListener("pointermove", (event) => {
   if (motionPaused || !finePointer.matches) return;
   const box = stage.getBoundingClientRect();
@@ -217,6 +200,7 @@ updateMotion();
 const updateScrollProgress = () => {
   const scrollable = document.documentElement.scrollHeight - window.innerHeight;
   const progress = scrollable > 0 ? window.scrollY / scrollable : 0;
+  ambientScroll = progress;
   document.documentElement.style.setProperty("--scroll-progress", `${progress}`);
 };
 let scrollFrame = 0;
