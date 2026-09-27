@@ -1,73 +1,16 @@
 // @ts-check
 
-document.documentElement.classList.add("has-js");
-
 /** @type {HTMLElement | null} */
 const year = document.querySelector("[data-current-year]");
 if (year) year.textContent = String(new Date().getFullYear());
-
-/** @type {NodeListOf<HTMLElement>} */
-const reveal = document.querySelectorAll("[data-reveal]");
-if ("IntersectionObserver" in window) {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
-      }
-    },
-    { rootMargin: "0px 0px -8%", threshold: 0.12 },
-  );
-  reveal.forEach((element) => observer.observe(element));
-} else {
-  reveal.forEach((element) => element.classList.add("is-visible"));
-}
-
-/** @type {HTMLElement | null} */
-const stage = document.querySelector("[data-pointer-stage]");
-let pointerFrame = 0;
-stage?.addEventListener("pointermove", (event) => {
-  const box = stage.getBoundingClientRect();
-  const x = event.clientX - box.left;
-  const y = event.clientY - box.top;
-  if (pointerFrame) return;
-  pointerFrame = window.requestAnimationFrame(() => {
-    stage.style.setProperty("--pointer-x", `${x}px`);
-    stage.style.setProperty("--pointer-y", `${y}px`);
-    pointerFrame = 0;
-  });
-});
-
-/** @type {NodeListOf<HTMLElement>} */
-const tiltElements = document.querySelectorAll("[data-tilt]");
-tiltElements.forEach((element) => {
-  let tiltFrame = 0;
-  element.addEventListener("pointermove", (event) => {
-    const box = element.getBoundingClientRect();
-    const x = (event.clientX - box.left) / box.width - 0.5;
-    const y = (event.clientY - box.top) / box.height - 0.5;
-    if (tiltFrame) return;
-    tiltFrame = window.requestAnimationFrame(() => {
-      element.style.setProperty("--tilt-x", `${y * -4}deg`);
-      element.style.setProperty("--tilt-y", `${x * 5}deg`);
-      tiltFrame = 0;
-    });
-  });
-  element.addEventListener("pointerleave", () => {
-    if (tiltFrame) window.cancelAnimationFrame(tiltFrame);
-    tiltFrame = 0;
-    element.style.removeProperty("--tilt-x");
-    element.style.removeProperty("--tilt-y");
-  });
-});
 
 /** @type {HTMLDialogElement | null} */
 const lightbox = document.querySelector("[data-lightbox-dialog]");
 /** @type {HTMLImageElement | null} */
 const lightboxImage = lightbox?.querySelector("[data-lightbox-image]") ?? null;
 /** @type {HTMLElement | null} */
-const lightboxCaption = lightbox?.querySelector("[data-lightbox-caption]") ?? null;
+const lightboxCaption =
+  lightbox?.querySelector("[data-lightbox-caption]") ?? null;
 /** @type {NodeListOf<HTMLAnchorElement>} */
 const lightboxTriggers = document.querySelectorAll("[data-lightbox]");
 /** @type {HTMLAnchorElement | null} */
@@ -91,7 +34,9 @@ lightboxTriggers.forEach((trigger) => {
   });
 });
 
-lightbox?.querySelector("[data-lightbox-close]")?.addEventListener("click", closeLightbox);
+lightbox
+  ?.querySelector("[data-lightbox-close]")
+  ?.addEventListener("click", closeLightbox);
 lightbox?.addEventListener("click", (event) => {
   if (event.target === lightbox) closeLightbox();
 });
@@ -101,3 +46,112 @@ lightbox?.addEventListener("close", () => {
   activeLightboxTrigger?.focus();
   activeLightboxTrigger = null;
 });
+
+// Keep decorative motion optional and respect the system preference.
+/** @type {HTMLElement | null} */
+const stage = document.querySelector("[data-pointer-stage]");
+/** @type {HTMLElement | null} */
+const tiltCard = stage?.querySelector("[data-tilt]") ?? null;
+/** @type {HTMLButtonElement | null} */
+const motionButton = document.querySelector("[data-motion-toggle]");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
+const russian = document.documentElement.lang === "ru";
+/** @type {boolean | null} */
+let motionPreference = null;
+try {
+  const savedMotion = sessionStorage.getItem("hotyap:motion");
+  if (savedMotion === "on" || savedMotion === "off")
+    motionPreference = savedMotion === "off";
+} catch {
+  /* Motion still works when storage is unavailable. */
+}
+let motionPaused = motionPreference ?? reducedMotion.matches;
+let pointerFrame = 0;
+/** @type {Set<Animation>} */
+const entranceAnimations = new Set();
+const resetTilt = () => {
+  window.cancelAnimationFrame(pointerFrame);
+  pointerFrame = 0;
+  tiltCard?.style.removeProperty("--tilt-x");
+  tiltCard?.style.removeProperty("--tilt-y");
+};
+const updateMotion = () => {
+  const paused = motionPaused;
+  document.documentElement.dataset.motionState = paused ? "off" : "on";
+  if (paused) entranceAnimations.forEach((animation) => animation.finish());
+  stage?.toggleAttribute("data-motion-paused", paused);
+  if (motionButton) {
+    motionButton.hidden = false;
+    motionButton.setAttribute("aria-pressed", String(paused));
+    motionButton.textContent = russian
+      ? paused
+        ? "Включить анимацию"
+        : "Остановить анимацию"
+      : paused
+        ? "Resume animation"
+        : "Pause animation";
+  }
+  if (paused) resetTilt();
+};
+motionButton?.addEventListener("click", () => {
+  motionPaused = !motionPaused;
+  motionPreference = motionPaused;
+  try {
+    sessionStorage.setItem("hotyap:motion", motionPaused ? "off" : "on");
+  } catch {
+    /* Optional preference. */
+  }
+  updateMotion();
+});
+reducedMotion.addEventListener("change", () => {
+  motionPaused = motionPreference ?? reducedMotion.matches;
+  updateMotion();
+});
+stage?.addEventListener("pointermove", (event) => {
+  if (motionPaused || !finePointer.matches) return;
+  const box = stage.getBoundingClientRect();
+  const x = (event.clientX - box.left) / box.width;
+  const y = (event.clientY - box.top) / box.height;
+  window.cancelAnimationFrame(pointerFrame);
+  pointerFrame = window.requestAnimationFrame(() => {
+    tiltCard?.style.setProperty("--tilt-x", `${(y - 0.5) * -5}deg`);
+    tiltCard?.style.setProperty("--tilt-y", `${(x - 0.5) * 6}deg`);
+    stage.style.setProperty("--pointer-x", `${x * 100}%`);
+    stage.style.setProperty("--pointer-y", `${y * 100}%`);
+  });
+});
+stage?.addEventListener("pointerleave", resetTilt);
+updateMotion();
+
+// Animate sections once on entry; native content visibility never depends on JS.
+if ("IntersectionObserver" in window) {
+  const entranceObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entranceObserver.unobserve(entry.target);
+        if (motionPaused) continue;
+        const animation = entry.target.animate(
+          [
+            { opacity: 0.15, transform: "translateY(22px)" },
+            { opacity: 1, transform: "translateY(0)" },
+          ],
+          { duration: 650, easing: "cubic-bezier(.22,1,.36,1)" },
+        );
+        entranceAnimations.add(animation);
+        animation.addEventListener(
+          "finish",
+          () => entranceAnimations.delete(animation),
+          { once: true },
+        );
+      }
+    },
+    { threshold: 0.12 },
+  );
+  document
+    .querySelectorAll(
+      ".section-heading, .features, .proof-copy, .product-proof figure, .workflow-grid, .control-copy, .control figure, .faq, .download-panel",
+    )
+    .forEach((element) => entranceObserver.observe(element));
+}

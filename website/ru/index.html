@@ -6,7 +6,7 @@
     <title>HotYap: локальная голосовая диктовка RU/EN</title>
     <meta
       name="description"
-      content="HotYap — локальная голосовая диктовка для русской речи с английскими техническими терминами. Зажмите клавишу, кричите, отпустите и вставьте текст."
+      content="Диктуйте на русском и английском, распознавайте речь локально и вставляйте готовый текст в свои приложения."
     />
     <meta
       name="keywords"
@@ -17,7 +17,7 @@
       name="robots"
       content="index, follow, max-image-preview:large, max-snippet:-1"
     />
-    <meta name="theme-color" content="#d99a4e" />
+    <meta name="theme-color" content="#111312" />
     <link rel="canonical" href="https://mr-lexus.github.io/hot-yap/ru/" />
     <link
       rel="alternate"
@@ -34,29 +34,44 @@
       hreflang="x-default"
       href="https://mr-lexus.github.io/hot-yap/"
     />
-    <link rel="icon" type="image/png" href="../assets/favicon-dark.png" media="(prefers-color-scheme: light)" />
-    <link rel="icon" type="image/png" href="../assets/favicon-light.png" media="(prefers-color-scheme: dark)" />
+    <link
+      rel="icon"
+      type="image/png"
+      href="../assets/favicon-dark.png"
+      media="(prefers-color-scheme: light)"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      href="../assets/favicon-light.png"
+      media="(prefers-color-scheme: dark)"
+    />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="preload" href="../assets/mascot-light.webp" as="image" type="image/webp" />
+    <link
+      rel="preload"
+      href="../assets/mascot-light.webp"
+      as="image"
+      type="image/webp"
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="HotYap" />
     <meta property="og:locale" content="ru_RU" />
     <meta property="og:locale:alternate" content="en_US" />
     <meta
       property="og:title"
-      content="HotYap: ор, отпусти, вставляй"
+      content="HotYap — голосовой ввод для компьютера"
     />
     <meta
       property="og:description"
-      content="Локальная RU/EN-диктовка, которая оставляет TypeScript словом TypeScript."
+      content="Диктуйте на русском и английском, распознавайте речь локально и вставляйте готовый текст в свои приложения."
     />
     <meta property="og:url" content="https://mr-lexus.github.io/hot-yap/ru/" />
     <meta
       property="og:image"
-      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+      content="https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app-ru.png"
     />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="768" />
     <meta
       property="og:image:alt"
       content="HotYap — локальная голосовая диктовка"
@@ -64,15 +79,15 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="HotYap: локальная RU/EN-диктовка"
+      content="HotYap — голосовой ввод для компьютера"
     />
     <meta
       name="twitter:description"
-      content="Зажмите клавишу, кричите, отпустите и вставьте. Локальный Whisper или внешние провайдеры по выбору."
+      content="Диктуйте на русском и английском, распознавайте речь локально и вставляйте готовый текст в свои приложения."
     />
     <meta
       name="twitter:image"
-      content="https://mr-lexus.github.io/hot-yap/landing/og-cover.png"
+      content="https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app-ru.png"
     />
     <script type="application/ld+json">
       {
@@ -88,7 +103,7 @@
         "url": "https://mr-lexus.github.io/hot-yap/ru/",
         "downloadUrl": "https://github.com/mr-lexus/hot-yap/releases",
         "codeRepository": "https://github.com/mr-lexus/hot-yap",
-        "image": "https://mr-lexus.github.io/hot-yap/landing/og-cover.png",
+        "image": "https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app-ru.png",
         "inLanguage": ["ru", "en"],
         "featureList": [
           "Локальное распознавание faster-whisper",
@@ -103,486 +118,378 @@
     <link rel="stylesheet" href="/src/landing.css" />
   </head>
   <body>
-    <a class="skip-link" href="#main">К содержанию</a>
-    <header class="site-header shell">
-      <nav class="nav" aria-label="Основная навигация">
-        <a class="brand" href="./" aria-label="Главная HotYap">
-          <img src="../assets/mascot-light.webp" alt="" width="48" height="48" decoding="async" />
-          <span class="brand-copy"
-            ><strong>HOT/YAP</strong><span>LOCAL ASR // ALPHA</span></span
-          >
-        </a>
-        <div class="nav-links">
-          <a href="#how">Как работает</a><a href="#features">Возможности</a
-          ><a href="#download">Скачать</a>
-        </div>
-        <div class="locale-switch" aria-label="Язык">
-          <a href="../" lang="en">EN</a
-          ><a href="./" lang="ru" aria-current="page">RU</a>
-        </div>
-        <a
-          class="github-link"
-          href="https://github.com/mr-lexus/hot-yap"
-          target="_blank"
-          rel="noreferrer"
+    <a class="skip-link" href="#main">Перейти к содержимому</a>
+    <header class="site-header">
+      <nav class="shell nav" aria-label="Основная навигация">
+        <a class="brand" href="./" aria-label="HotYap"
+          ><img
+            src="../assets/mascot-light.webp"
+            alt=""
+            width="44"
+            height="44"
+          /><strong>HOT/YAP</strong></a
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.8 5.1 15.8 5.4 15.8 5.4c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.1c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"
-            /></svg
-          ><span>GitHub</span>
-        </a>
+        <div class="nav-links">
+          <a href="#features">Возможности</a><a href="#how">Как это работает</a
+          ><a href="#faq">FAQ</a>
+        </div>
+        <div class="nav-end">
+          <div class="locale-switch" aria-label="Язык">
+            <a href="../" lang="en">EN</a><span>/</span
+            ><a href="../ru/" lang="ru" aria-current="page">RU</a>
+          </div>
+          <a class="nav-download" href="#download"
+            >Скачать <span aria-hidden="true">↗</span></a
+          >
+        </div>
       </nav>
     </header>
-
     <main id="main">
       <section class="hero shell">
-        <div class="hero-copy" data-reveal>
-          <div class="alpha-line">
-            <i class="live-dot" aria-hidden="true"></i>
-            <p class="eyebrow">Локальная голосовая диктовка</p>
-            <span class="alpha-chip">0.1 ALPHA</span>
-          </div>
-          <h1>
-            <span class="hero-word">Кричи.</span
-            ><span class="hero-word hot">Отпусти.</span
-            ><span class="hero-word outline">Вставляй.</span>
-          </h1>
-          <p class="hero-lead">
-            <strong
-              >Русская речь. Термины на английском. Клавиатура отдыхает.</strong
-            >
-            Зажмите горячую клавишу, скажите «почини useEffect в TypeScript»,
-            отпустите — и готовый текст уже в буфере.
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="status-dot"></span>РУССКИЙ + ENGLISH / ГОЛОСОВОЙ ВВОД
           </p>
-          <p class="yap-note">
-            В HotYap «кричать» — это просто диктовать. Волчонок добавляет
-            характер, а распознавание остаётся серьёзным.
+          <h1>Говорите<br /><em>как привыкли.</em></h1>
+          <p class="hero-lead">
+            Русская речь. Английские технические термины. Диктуйте задачи,
+            сообщения и промпты — HotYap помогает сохранить язык вашего стека в
+            расшифровке.
           </p>
           <div class="actions">
+            <a class="button button-primary" href="#download"
+              >Скачать HotYap <span aria-hidden="true">↗</span></a
+            ><a class="text-link" href="https://github.com/mr-lexus/hot-yap"
+              >Исходный код <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="hero-meta">
+            Windows · macOS · Linux <span> / </span> Ранняя альфа
+          </p>
+        </div>
+        <div class="beast-stage" data-pointer-stage>
+          <div class="beast-card" data-tilt>
+            <div class="mascot-card-label">
+              <span>VOICE INPUT</span><span>RU / EN</span>
+            </div>
+            <div class="orbit-word" aria-hidden="true">Aa</div>
+            <img
+              src="../assets/mascot-light.webp"
+              alt="Волчонок — маскот HotYap"
+              width="956"
+              height="966"
+              fetchpriority="high"
+            />
+            <span class="card-footnote">LOCAL FIRST — YOUR DESKTOP</span>
+          </div>
+          <div
+            class="recording-preview"
+            aria-label="Иллюстрация голосовой диктовки"
+          >
+            <div class="recording-top">
+              <span class="recording-status"
+                ><i></i>Диктовка → буфер обмена</span
+              >
+              <div class="wave" aria-hidden="true">
+                <i style="--level: 18%; --delay: -0s"></i
+                ><i style="--level: 35%; --delay: -0.13s"></i
+                ><i style="--level: 60%; --delay: -0.26s"></i
+                ><i style="--level: 40%; --delay: -0.39s"></i
+                ><i style="--level: 80%; --delay: -0.52s"></i
+                ><i style="--level: 50%; --delay: -0.65s"></i
+                ><i style="--level: 95%; --delay: -0.78s"></i
+                ><i style="--level: 65%; --delay: -0.91s"></i
+                ><i style="--level: 40%; --delay: -1.04s"></i
+                ><i style="--level: 85%; --delay: -1.17s"></i
+                ><i style="--level: 100%; --delay: -1.3s"></i
+                ><i style="--level: 60%; --delay: -1.43s"></i
+                ><i style="--level: 45%; --delay: -1.56s"></i
+                ><i style="--level: 75%; --delay: -1.69s"></i
+                ><i style="--level: 50%; --delay: -1.82s"></i
+                ><i style="--level: 90%; --delay: -1.95s"></i
+                ><i style="--level: 55%; --delay: -2.08s"></i
+                ><i style="--level: 32%; --delay: -2.21s"></i>
+              </div>
+            </div>
+            <p class="transcript-example">
+              «Проверь <b>useEffect</b> и обнови <b>Docker</b>-контейнер»
+            </p>
+            <div class="transcript-caption">
+              <span>Пример расшифровки</span
+              ><span>RU <span aria-hidden="true">↔</span> EN</span>
+            </div>
+          </div>
+          <button
+            class="motion-toggle"
+            type="button"
+            data-motion-toggle
+            aria-pressed="false"
+          >
+            Остановить анимацию
+          </button>
+        </div>
+      </section>
+      <div class="principles shell">
+        <span>Локальная обработка</span><span>Русский + English</span
+        ><span>Горячая клавиша</span><span>Открытый исходный код</span>
+      </div>
+      <section class="section shell" id="features">
+        <div class="section-heading">
+          <p class="eyebrow">01 / ЗНАКОМЫЙ ЯЗЫК. НОВЫЙ СПОСОБ.</p>
+          <h2>Для повседневной<br /><em>работы с текстом.</em></h2>
+        </div>
+        <div class="features">
+          <article class="feature">
+            <p class="feature-label">RU + EN</p>
+            <h3>Два языка. Одна мысль.</h3>
+            <p>
+              Диктуйте по-русски с английскими терминами. Контекст распознавания
+              помогает сохранять TypeScript, Docker и useEffect в латинице.
+            </p>
+          </article>
+          <article class="feature">
+            <p class="feature-label">LOCAL</p>
+            <h3>Ваша речь остаётся у вас.</h3>
+            <p>
+              В локальном режиме речь распознаётся на вашем компьютере. Без
+              истории записей и телеметрии.
+            </p>
+          </article>
+          <article class="feature">
+            <p class="feature-label">PUSH TO TALK</p>
+            <h3>Оставайтесь в своём приложении.</h3>
+            <p>
+              Начните запись горячей клавишей. Результат попадёт в буфер обмена
+              — для сообщения, документа или редактора.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="product-proof" aria-labelledby="product-title">
+        <div class="proof-copy">
+          <p class="eyebrow">02 / ВАШ НОВЫЙ РАБОЧИЙ ИНСТРУМЕНТ</p>
+          <h2 id="product-title">
+            Меньше набирать.<br /><em>Больше делать.</em>
+          </h2>
+          <p>
+            Задача коллеге, сообщение команде или промпт для ИИ-ассистента.
+            Продиктуйте мысль и вставьте расшифровку там, где работаете.
+          </p>
+          <a class="text-link" href="#how">Как это работает ↗</a>
+        </div>
+        <figure>
+          <a
+            class="app-preview"
+            href="../landing/screenshots/hotyap-app-ru.png"
+            data-lightbox
+            data-lightbox-caption="Приложение HotYap"
+            ><img
+              src="../assets/screenshots/hotyap-app-ru.webp"
+              alt="Интерфейс приложения HotYap"
+              width="1120"
+              height="780"
+              loading="lazy"
+          /></a>
+          <figcaption>Приложение HotYap · Увеличить ↗</figcaption>
+        </figure>
+      </section>
+      <section class="workflow" id="how">
+        <div class="shell workflow-grid">
+          <div>
+            <p class="eyebrow">03 / ТРИ ШАГА ДО ТЕКСТА</p>
+            <h2>Одно сочетание.<br />От мысли к тексту.</h2>
+            <div class="shortcut">
+              <kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span
+              ><kbd>Space</kbd>
+            </div>
+            <p class="muted">
+              Сочетание по умолчанию. Можно изменить в приложении.
+            </p>
+          </div>
+          <ol class="steps">
+            <li>
+              <span class="step-number">01</span>
+              <div>
+                <h3>Зажмите клавиши</h3>
+                <p>Используйте настраиваемое сочетание или кнопку записи.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">02</span>
+              <div>
+                <h3>Продиктуйте текст</h3>
+                <p>
+                  Отпустите клавиши, когда закончите. HotYap распознает запись.
+                </p>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">03</span>
+              <div>
+                <h3>Вставьте результат</h3>
+                <p>Вставьте текст из буфера обмена туда, где он нужен.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+      <section class="section shell control">
+        <div class="control-copy">
+          <p class="eyebrow">04 / КОНТРОЛЬ НА ВАШЕЙ СТОРОНЕ</p>
+          <h2>Ваш компьютер.<br /><em>Ваши правила.</em></h2>
+          <p>
+            Выберите модель под свой компьютер и задачи. Загружайте её и
+            управляйте ей прямо в HotYap.
+          </p>
+          <ul class="control-list">
+            <li>Работа на CPU и ускорение CUDA</li>
+            <li>Облачное распознавание по желанию</li>
+            <li>Дополнительная обработка текста</li>
+          </ul>
+          <a
+            class="text-link"
+            href="https://github.com/mr-lexus/hot-yap#external-providers"
+            >Открыть документацию ↗</a
+          >
+        </div>
+        <figure>
+          <a
+            class="model-preview"
+            href="../landing/screenshots/hotyap-models-ru.png"
+            data-lightbox
+            data-lightbox-caption="Библиотека локальных моделей"
+            ><img
+              src="../assets/screenshots/hotyap-models-ru.webp"
+              alt="Библиотека HotYap с выбором и загрузкой моделей"
+              width="1123"
+              height="663"
+              loading="lazy"
+          /></a>
+          <figcaption>Управление моделями прямо в приложении. ↗</figcaption>
+        </figure>
+      </section>
+      <section class="section shell faq" id="faq">
+        <div>
+          <p class="eyebrow">Перед началом</p>
+          <h2>Полезно знать.</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>
+              Можно работать без интернета?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Да. Сначала загрузите локальную модель, затем распознавайте речь
+              без подключения к интернету. Облачное распознавание и внешняя
+              обработка текста требуют доступа к выбранному провайдеру.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Нужна мощная видеокарта?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Нет. Локальные модели работают и на CPU. Совместимая видеокарта
+              NVIDIA с CUDA может ускорить распознавание. Скорость зависит от
+              оборудования и выбранной модели.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Когда данные отправляются провайдеру?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Аудио отправляется при выборе облачного распознавания. Если
+              включить внешнюю постобработку текста, расшифровка также
+              отправляется её провайдеру. Обе функции необязательны; API-ключи
+              хранятся в системном хранилище учётных данных.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Что нужно знать об альфа-версии?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Установщики пока не подписаны. Основная проверенная платформа —
+              Linux; сборкам Windows и macOS требуется более широкое
+              тестирование. В Linux на Wayland используйте кнопку записи, если
+              глобальная горячая клавиша недоступна.
+            </p>
+          </details>
+        </div>
+      </section>
+      <section class="download-section shell" id="download">
+        <div class="download-panel">
+          <div class="download-copy">
+            <p class="eyebrow">Готовы начать?</p>
+            <h2>Попробуйте<br /><em>диктовать.</em></h2>
+            <p>
+              Установите HotYap, загрузите модель и попробуйте первую диктовку.
+            </p>
             <a
               class="button button-primary"
               href="https://github.com/mr-lexus/hot-yap/releases"
-              >Скачать альфа-сборку <span aria-hidden="true">↘</span></a
-            ><a
-              class="button button-secondary"
-              href="https://github.com/mr-lexus/hot-yap"
-              >Посмотреть исходники <span aria-hidden="true">↗</span></a
+              >Выбрать установщик ↗</a
             >
+            <p class="download-note">
+              Ранняя альфа · Установщики пока не подписаны
+            </p>
           </div>
-          <div class="platform-line" aria-label="Поддерживаемые платформы">
-            <span>LINUX</span><span>WINDOWS</span><span>macOS</span
-            ><span>RU + EN</span>
-          </div>
-        </div>
-        <div
-          class="beast-stage"
-          data-pointer-stage
-          aria-label="Маскот HotYap и интерфейс записи"
-        >
-          <div class="beast-card" data-tilt>
-            <div class="mad-label">Диктовка с<b>характером.</b></div>
-            <img
-              src="../assets/mascot-light.webp"
-              alt="Безумный волчонок — маскот HotYap"
-              width="956"
-              height="966"
-              decoding="async"
-            />
-          </div>
-          <div class="burst">ОР<br />В<br />ТЕКСТ!</div>
-          <div class="speech-bubble">«git rebase, а не гит ребейс»</div>
-          <div class="recorder-card" aria-label="Превью оверлея записи HotYap">
-            <span class="overlay-wolf" aria-hidden="true">
-              <img src="../assets/mascot-light.webp" alt="" width="52" height="52" />
-            </span>
-            <span class="rec-copy">
-              <strong>Идёт запись</strong>
-              <small>Отпустите клавишу для обработки</small>
-            </span>
-            <span class="wave" aria-hidden="true"
-              ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
-              ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
-              ><i></i><i></i
-            ></span>
-          </div>
-        </div>
-      </section>
-
-      <div class="ticker" aria-hidden="true">
-        <div class="ticker-track">
-          <span>Зажать клавишу</span><span>Кричи как есть</span
-          ><span>Отпустить</span><span>Вставить куда угодно</span
-          ><span>Локальный Whisper</span><span>Без истории</span
-          ><span>Зажать клавишу</span><span>Кричи как есть</span
-          ><span>Отпустить</span><span>Вставить куда угодно</span
-          ><span>Локальный Whisper</span><span>Без истории</span>
-        </div>
-      </div>
-
-      <section class="visual-proof shell" aria-labelledby="visual-proof-title">
-        <div class="proof-heading" data-reveal>
-          <p class="section-kicker">Настоящие пиксели. Настоящая программа.</p>
-          <h2 id="visual-proof-title">Вот как она<br /><em>орёт.</em></h2>
-          <p>
-            Реальный интерфейс HotYap. Без мокапа, нарисованного для лендинга.
-          </p>
-        </div>
-        <div class="proof-collage" data-reveal>
-          <a
-            class="proof-card proof-main"
-            href="../landing/screenshots/hotyap-app-ru.png"
-            data-lightbox
-            data-lightbox-caption="Полное окно HotYap — локальная модель готова к диктовке"
-          >
-            <img
-              src="../assets/screenshots/hotyap-app-ru.webp"
-              alt="Полное окно программы HotYap"
-              width="1120"
-              height="768"
-              loading="lazy"
-              decoding="async"
-            />
-            <span>ПОЛНОЕ ОКНО // РАЗВЕРНУТЬ ↗</span>
-          </a>
-          <div class="proof-stack">
-            <a
-              class="proof-card proof-detail proof-detail-top"
-              href="../landing/screenshots/hotyap-app-cloud-ru.png"
-              data-lightbox
-              data-lightbox-caption="HotYap в облачном режиме с Deepgram"
-            >
-              <img
-                src="../assets/screenshots/hotyap-app-cloud-ru.webp"
-                alt="Русский интерфейс HotYap в облачном режиме"
-                width="1123"
-                height="663"
-                loading="lazy"
-                decoding="async"
-              />
-              <span>ОБЛАЧНЫЙ РЕЖИМ</span>
-            </a>
-            <a
-              class="proof-card proof-detail proof-detail-bottom"
-              href="../landing/screenshots/hotyap-models-ru.png"
-              data-lightbox
-              data-lightbox-caption="Библиотека локальных моделей Whisper"
-            >
-              <img
-                src="../assets/screenshots/hotyap-models-ru.webp"
-                alt="Библиотека локальных моделей HotYap с загруженными и доступными сборками"
-                width="1123"
-                height="663"
-                loading="lazy"
-                decoding="async"
-              />
-              <span>ЛОКАЛЬНЫЕ МОДЕЛИ</span>
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section class="section shell" id="how">
-        <div data-reveal>
-          <p class="section-kicker">Четыре шага. Без лишнего.</p>
-          <h2 class="section-title">От голоса — к <em>готовому тексту.</em></h2>
-          <p class="section-intro">
-            HotYap работает по принципу push-to-talk: переключайтесь с русского
-            на технический английский прямо посреди фразы.
-          </p>
-        </div>
-        <div class="steps">
-          <article class="step" data-reveal>
-            <span class="step-icon">01</span>
-            <h3>Зажать</h3>
-            <p>Используйте глобальную горячую клавишу или кнопку в окне.</p>
-            <div class="kbd-row">
-              <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd>
+          <div class="platforms">
+            <div>
+              <strong>Windows</strong><span>x86_64</span
+              ><small>.msi / .exe</small>
             </div>
-          </article>
-          <article class="step" data-reveal>
-            <span class="step-icon">02</span>
-            <h3>Кричать</h3>
+            <div>
+              <strong>macOS</strong><span>Intel / Apple Silicon</span
+              ><small>.dmg</small>
+            </div>
+            <div>
+              <strong>Linux</strong><span>x86_64</span
+              ><small>.deb / .rpm / .AppImage</small>
+            </div>
             <p>
-              Диктуйте по-русски, по-английски или смешивайте языки. Оверлей
-              покажет, что микрофон вас слышит.
-            </p>
-          </article>
-          <article class="step" data-reveal>
-            <span class="step-icon">03</span>
-            <h3>Отпустить</h3>
-            <p>
-              Локальный faster-whisper или выбранный провайдер превратит аудио в
-              текст.
-            </p>
-          </article>
-          <article class="step" data-reveal>
-            <span class="step-icon">04</span>
-            <h3>Вставить</h3>
-            <p>
-              Результат копируется в буфер. Только вы решаете, куда его
-              отправить.
-            </p>
-            <div class="kbd-row"><kbd>Ctrl</kbd><kbd>V</kbd></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="section shell" id="features">
-        <div data-reveal>
-          <p class="section-kicker">
-            Маленькая программа. Большой результат.
-          </p>
-          <h2 class="section-title">
-            Для фраз, где важен каждый <em>термин.</em>
-          </h2>
-        </div>
-        <div class="features">
-          <article class="feature" data-reveal>
-            <span class="feature-label">LOCAL ENGINE</span>
-            <h3>Аудио может остаться на вашем компьютере.</h3>
-            <p>
-              Faster-whisper с CTranslate2 работает прямо на компьютере.
-              Выбранная модель загружается один раз и остаётся готовой между
-              диктовками.
-            </p>
-          </article>
-          <article class="feature" data-reveal>
-            <span class="feature-label">RU ↔ EN</span>
-            <h3>Русский + English в одной фразе.</h3>
-            <p>
-              Контекст распознавания помогает сохранять Python, Docker,
-              useEffect и GitHub в латинице.
-            </p>
-          </article>
-          <article class="feature" data-reveal>
-            <span class="feature-label">PUSH TO TALK</span>
-            <h3>Зажали. Сказали. Отпустили.</h3>
-            <p>
-              Настраиваемая горячая клавиша и компактный оверлей не заставляют
-              переключаться в отдельное окно.
-            </p>
-          </article>
-          <article class="feature" data-reveal>
-            <span class="feature-label">MODEL CONTROL</span>
-            <h3>От tiny до large-v3. От CPU до CUDA.</h3>
-            <p>
-              Выбирайте CTranslate2-модель и управляйте загрузками. Если CUDA
-              недоступна, приложение продолжит работать на CPU.
-            </p>
-          </article>
-          <article class="feature" data-reveal>
-            <span class="feature-label">CLIPBOARD FIRST</span>
-            <h3>Текст попадает в буфер — без автопечати.</h3>
-            <p>
-              Приложение не имитирует нажатия клавиш: готовый UTF-8-текст
-              попадает в буфер, а вставляете его вы сами.
-            </p>
-          </article>
-          <article class="feature" data-reveal>
-            <span class="feature-label">OPTIONAL CLOUD</span>
-            <h3>Локально по умолчанию. API по желанию.</h3>
-            <p>
-              Облачное распознавание и постобработка включаются только по вашему
-              выбору. Ключи остаются в системном хранилище.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section
-        class="section shell product-showcase"
-        aria-labelledby="real-app-title"
-      >
-        <div class="product-copy" data-reveal>
-          <p class="section-kicker">Настоящее приложение</p>
-          <h2 class="section-title" id="real-app-title">
-            Тихий UI.<br /><em>Громкий результат.</em>
-          </h2>
-          <div class="sticker-note">ДА, ВОЛЧОНОК КОНТРОЛИРУЕТ.</div>
-          <div class="product-points">
-            <div class="product-point">
-              <b>✓</b><span>Живой уровень звука и прогресс распознавания.</span>
-            </div>
-            <div class="product-point">
-              <b>✓</b><span>Русский и английский интерфейс.</span>
-            </div>
-            <div class="product-point">
-              <b>✓</b><span>Тёмная и светлая темы с разными акцентами.</span>
-            </div>
-            <div class="product-point">
-              <b>✓</b
-              ><span>Менеджер локальных моделей и внешних провайдеров.</span>
-            </div>
-          </div>
-        </div>
-        <a
-          class="screen-wrap"
-          href="../landing/screenshots/hotyap-settings-ru.png"
-          data-lightbox
-          data-lightbox-caption="Настройки внешнего вида и распознавания речи HotYap"
-          data-reveal
-          ><img
-            src="../assets/screenshots/hotyap-settings-ru.webp"
-            alt="Настройки HotYap: акцент, иконка и провайдер распознавания"
-            width="1123"
-            height="663"
-            loading="lazy"
-            decoding="async"
-        /></a>
-      </section>
-
-      <section class="section shell download-section" id="download">
-        <div class="package-layout">
-          <div data-reveal>
-            <p class="section-kicker">Ранний доступ</p>
-            <h2 class="section-title">Скачайте под <em>свою систему.</em></h2>
-            <p class="section-intro">
-              Для каждого альфа-релиза GitHub Actions собирает нативные
-              установщики под Linux, Windows и macOS.
-            </p>
-            <div class="alpha-warning">
-              <strong>Это альфа-версия.</strong> Установщики пока не подписаны,
-              возможны шероховатости и несовместимые изменения. О проблемах
-              рассказывайте в GitHub Issues.
-            </div>
-          </div>
-          <div class="packages" data-reveal>
-            <div class="package-row">
-              <span class="package-ext">LINUX</span
-              ><span class="package-name"
-                ><strong>Debian, Fedora, portable</strong
-                ><span>Сборки x86_64</span></span
-              ><span class="package-formats"
-                >.deb<br />.rpm<br />.AppImage</span
-              >
-            </div>
-            <div class="package-row">
-              <span class="package-ext">WIN</span
-              ><span class="package-name"
-                ><strong>Windows 10 / 11</strong
-                ><span>Установщики x86_64</span></span
-              ><span class="package-formats">.msi<br />-setup.exe</span>
-            </div>
-            <div class="package-row">
-              <span class="package-ext">MAC</span
-              ><span class="package-name"
-                ><strong>Intel и Apple Silicon</strong
-                ><span>Отдельные нативные сборки</span></span
-              ><span class="package-formats">x64.dmg<br />arm64.dmg</span>
-            </div>
-            <div class="release-card">
-              <small>ТЕКУЩИЙ КАНАЛ // PRE-RELEASE</small>
-              <h3>0.1.0<br />alpha.1</h3>
-              <p>
-                Модель не упакована внутрь. Выберите и загрузите её при первом
-                запуске, чтобы установщик не весил несколько гигабайт.
-              </p>
-              <a
-                class="button"
-                href="https://github.com/mr-lexus/hot-yap/releases"
-                >Открыть GitHub Releases ↗</a
-              >
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section shell" id="privacy">
-        <div class="privacy-panel" data-reveal>
-          <div>
-            <p class="section-kicker">Приватно по умолчанию</p>
-            <h2 class="section-title">
-              Без истории.<br /><em>Без сплетен.</em>
-            </h2>
-            <p class="section-intro">
-              В локальном режиме вся обработка речи остаётся на устройстве.
-              Внешние провайдеры подключаются только по вашему выбору.
+              Основная проверенная платформа — Linux. Сборки Windows и macOS
+              доступны для раннего тестирования.
             </p>
           </div>
-          <div class="privacy-list">
-            <div class="privacy-item">
-              <i></i>
-              <p>
-                <strong>Нет истории и телеметрии.</strong> Диктовки не
-                сохраняются и не отправляются в историю.
-              </p>
-            </div>
-            <div class="privacy-item">
-              <i></i>
-              <p>
-                <strong>Временные WAV удаляются</strong> после распознавания, в
-                том числе при ошибках.
-              </p>
-            </div>
-            <div class="privacy-item">
-              <i></i>
-              <p>
-                <strong>Облако только по выбору.</strong> Аудио покидает
-                компьютер, только если выбран внешний STT.
-              </p>
-            </div>
-            <div class="privacy-item">
-              <i></i>
-              <p>
-                <strong>Последнее действие за вами.</strong> Текст попадает в
-                буфер, но не печатается автоматически.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="final-cta shell" data-reveal>
-        <img
-          src="../assets/mascot-light.webp"
-          alt=""
-          width="170"
-          height="170"
-          loading="lazy"
-          decoding="async"
-        />
-        <h2>Хватит печатать.<br /><span>Пора орать.</span></h2>
-        <p>
-          Попробуйте альфа-версию. Если что-то пойдёт не так — заведите issue.
-          Мы правда читаем.
-        </p>
-        <div class="actions">
-          <a
-            class="button button-primary"
-            href="https://github.com/mr-lexus/hot-yap/releases"
-            >Скачать HotYap</a
-          ><a
-            class="button button-secondary"
-            href="https://github.com/mr-lexus/hot-yap/issues"
-            >Сообщить о проблеме</a
-          >
         </div>
       </section>
     </main>
-
-    <dialog class="image-lightbox" data-lightbox-dialog aria-label="Просмотр изображения">
+    <dialog
+      class="image-lightbox"
+      data-lightbox-dialog
+      aria-label="Просмотр изображения"
+    >
       <div class="lightbox-frame">
         <img data-lightbox-image alt="" />
         <div class="lightbox-bar">
-          <span data-lightbox-caption></span>
-          <button class="lightbox-close" type="button" data-lightbox-close aria-label="Закрыть">×</button>
+          <span data-lightbox-caption></span
+          ><button type="button" data-lightbox-close aria-label="Закрыть">
+            ×
+          </button>
         </div>
       </div>
     </dialog>
-
-    <footer class="site-footer">
-      <div class="shell footer-row">
-        <span
-          ><strong>HotYap</strong> ©
-          <span data-current-year>2026</span></span
+    <div class="closing-wordmark shell" aria-hidden="true">
+      HOT<span>/</span>YAP<span class="wordmark-period">*</span>
+    </div>
+    <footer class="shell footer">
+      <a class="brand" href="./"
+        ><img
+          src="../assets/mascot-light.webp"
+          alt=""
+          width="32"
+          height="32"
+        /><strong>HOT/YAP</strong></a
+      ><span>© <span data-current-year>2026</span> HotYap</span>
+      <div>
+        <a href="https://github.com/mr-lexus/hot-yap">GitHub</a
+        ><a href="https://github.com/mr-lexus/hot-yap/issues"
+          >Сообщить о проблеме</a
         >
-        <div class="footer-links">
-          <a href="https://github.com/mr-lexus/hot-yap">Исходники</a
-          ><a href="https://github.com/mr-lexus/hot-yap/releases">Релизы</a
-          ><a href="https://github.com/mr-lexus/hot-yap/issues">Ошибки</a
-          ><a href="#main">Наверх ↑</a>
-        </div>
       </div>
     </footer>
   </body>
