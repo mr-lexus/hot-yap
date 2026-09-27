@@ -4,6 +4,89 @@
 const year = document.querySelector("[data-current-year]");
 if (year) year.textContent = String(new Date().getFullYear());
 
+// A quiet generative backdrop gives the dark sections depth without competing
+// with the copy. It is intentionally canvas based so it stays cheap to render
+// and does not add another visual asset to the page.
+const ambientCanvas = document.createElement("canvas");
+ambientCanvas.className = "ambient-canvas";
+ambientCanvas.setAttribute("aria-hidden", "true");
+document.documentElement.append(ambientCanvas);
+const ambientContext = ambientCanvas.getContext("2d");
+const ambientPointer = { x: 0.72, y: 0.28, active: false };
+const ambientPoints = Array.from({ length: 34 }, (_, index) => ({
+  x: (index * 0.6180339887 + 0.08) % 1,
+  y: (index * 0.3819660113 + 0.11) % 1,
+  radius: 0.7 + (index % 4) * 0.45,
+  phase: index * 0.73,
+}));
+let ambientFrame = 0;
+let ambientWidth = 0;
+let ambientHeight = 0;
+const resizeAmbientCanvas = () => {
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  ambientWidth = window.innerWidth;
+  ambientHeight = window.innerHeight;
+  ambientCanvas.width = ambientWidth * ratio;
+  ambientCanvas.height = ambientHeight * ratio;
+  ambientCanvas.style.width = `${ambientWidth}px`;
+  ambientCanvas.style.height = `${ambientHeight}px`;
+  ambientContext?.setTransform(ratio, 0, 0, ratio, 0, 0);
+};
+/** @param {number} time */
+const drawAmbientCanvas = (time) => {
+  if (!ambientContext || motionPaused) {
+    ambientFrame = 0;
+    return;
+  }
+  const ctx = ambientContext;
+  const seconds = time / 1000;
+  ctx.clearRect(0, 0, ambientWidth, ambientHeight);
+  const pointerX = ambientPointer.active ? ambientPointer.x * ambientWidth : ambientWidth * 0.72;
+  const pointerY = ambientPointer.active ? ambientPointer.y * ambientHeight : ambientHeight * 0.28;
+  const glow = ctx.createRadialGradient(pointerX, pointerY, 0, pointerX, pointerY, Math.min(ambientWidth, ambientHeight) * 0.46);
+  glow.addColorStop(0, "rgba(255, 121, 81, .13)");
+  glow.addColorStop(0.4, "rgba(239, 177, 120, .035)");
+  glow.addColorStop(1, "rgba(239, 177, 120, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, ambientWidth, ambientHeight);
+  const points = ambientPoints.map((point) => ({
+    x: point.x * ambientWidth + Math.sin(seconds * 0.16 + point.phase) * 13,
+    y: point.y * ambientHeight + Math.cos(seconds * 0.13 + point.phase) * 10,
+    radius: point.radius,
+  }));
+  ctx.lineWidth = 0.6;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (let next = index + 1; next < points.length; next += 1) {
+      const candidate = points[next];
+      const distance = Math.hypot(point.x - candidate.x, point.y - candidate.y);
+      if (distance < nearestDistance) {
+        nearest = candidate;
+        nearestDistance = distance;
+      }
+    }
+    if (nearest && nearestDistance < Math.min(230, ambientWidth * 0.22)) {
+      ctx.strokeStyle = `rgba(196, 161, 137, ${Math.max(0, 0.09 - nearestDistance / 3600)})`;
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(nearest.x, nearest.y);
+      ctx.stroke();
+    }
+  }
+  points.forEach((point, index) => {
+    const pulse = 0.65 + Math.sin(seconds * 0.8 + index) * 0.2;
+    ctx.fillStyle = `rgba(255, 151, 119, ${0.16 * pulse})`;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, point.radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
+};
+resizeAmbientCanvas();
+window.addEventListener("resize", resizeAmbientCanvas, { passive: true });
+
 /** @type {HTMLDialogElement | null} */
 const lightbox = document.querySelector("[data-lightbox-dialog]");
 /** @type {HTMLImageElement | null} */
@@ -93,6 +176,13 @@ const updateMotion = () => {
         : "Pause animation";
   }
   if (paused) resetTilt();
+  if (paused) {
+    window.cancelAnimationFrame(ambientFrame);
+    ambientFrame = 0;
+    ambientContext?.clearRect(0, 0, ambientWidth, ambientHeight);
+  } else if (!ambientFrame) {
+    ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
+  }
 };
 motionButton?.addEventListener("click", () => {
   motionPaused = !motionPaused;
@@ -123,6 +213,59 @@ stage?.addEventListener("pointermove", (event) => {
 });
 stage?.addEventListener("pointerleave", resetTilt);
 updateMotion();
+
+const updateScrollProgress = () => {
+  const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+  const progress = scrollable > 0 ? window.scrollY / scrollable : 0;
+  document.documentElement.style.setProperty("--scroll-progress", `${progress}`);
+};
+let scrollFrame = 0;
+window.addEventListener(
+  "scroll",
+  () => {
+    if (scrollFrame) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      updateScrollProgress();
+      scrollFrame = 0;
+    });
+  },
+  { passive: true },
+);
+updateScrollProgress();
+
+if (finePointer.matches) {
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      ambientPointer.x = event.clientX / window.innerWidth;
+      ambientPointer.y = event.clientY / window.innerHeight;
+      ambientPointer.active = true;
+    },
+    { passive: true },
+  );
+}
+ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
+
+document.querySelectorAll(".button, .nav-download").forEach((control) => {
+  if (!(control instanceof HTMLElement)) return;
+  control.addEventListener("pointermove", (event) => {
+    if (motionPaused || !finePointer.matches) return;
+    const bounds = control.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / bounds.width - 0.5;
+    const y = (event.clientY - bounds.top) / bounds.height - 0.5;
+    control.style.setProperty("--mag-x", `${x * 7}px`);
+    control.style.setProperty("--mag-y", `${y * 5}px`);
+  });
+  control.addEventListener("pointerleave", () => {
+    control.style.removeProperty("--mag-x");
+    control.style.removeProperty("--mag-y");
+  });
+  control.addEventListener("click", () => {
+    control.classList.remove("is-clicked");
+    void control.offsetWidth;
+    control.classList.add("is-clicked");
+  });
+});
 
 // Animate sections once on entry; native content visibility never depends on JS.
 if ("IntersectionObserver" in window) {
