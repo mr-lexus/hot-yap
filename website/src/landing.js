@@ -4,7 +4,7 @@
 const year = document.querySelector("[data-current-year]");
 if (year) year.textContent = String(new Date().getFullYear());
 
-// A quiet generative backdrop gives the dark sections depth without competing
+// A restrained generative web gives the dark sections depth without competing
 // with the copy. It is intentionally canvas based so it stays cheap to render
 // and does not add another visual asset to the page.
 const ambientCanvas = document.createElement("canvas");
@@ -13,12 +13,23 @@ ambientCanvas.setAttribute("aria-hidden", "true");
 document.documentElement.append(ambientCanvas);
 const ambientContext = ambientCanvas.getContext("2d");
 const ambientPointer = { x: 0.72, y: 0.28, active: false };
-const ambientPoints = Array.from({ length: 34 }, (_, index) => ({
-  x: (index * 0.6180339887 + 0.08) % 1,
-  y: (index * 0.3819660113 + 0.11) % 1,
-  radius: 0.7 + (index % 4) * 0.45,
-  phase: index * 0.73,
-}));
+const ambientColumns = 9;
+const ambientRows = 7;
+const ambientPoints = Array.from(
+  { length: ambientColumns * ambientRows },
+  (_, index) => {
+    const column = index % ambientColumns;
+    const row = Math.floor(index / ambientColumns);
+    const jitterX = ((index * 0.754877666 + 0.17) % 1 - 0.5) * 0.32;
+    const jitterY = ((index * 0.569840291 + 0.41) % 1 - 0.5) * 0.35;
+    return {
+      x: (column + 0.5 + jitterX) / ambientColumns,
+      y: (row + 0.5 + jitterY) / ambientRows,
+      radius: 0.9 + (index % 5) * 0.35,
+      phase: index * 0.73,
+    };
+  },
+);
 let ambientFrame = 0;
 let ambientLastDraw = 0;
 let ambientWidth = 0;
@@ -59,46 +70,76 @@ const drawAmbientCanvas = (time) => {
   ctx.clearRect(0, 0, ambientWidth, ambientHeight);
   const pointerX = ambientPointer.active ? ambientPointer.x * ambientWidth : ambientWidth * 0.72;
   const pointerY = ambientPointer.active ? ambientPointer.y * ambientHeight : ambientHeight * 0.28;
-  const glow = ctx.createRadialGradient(pointerX, pointerY, 0, pointerX, pointerY, Math.min(ambientWidth, ambientHeight) * 0.46);
-  glow.addColorStop(0, "rgba(255, 121, 81, .13)");
-  glow.addColorStop(0.4, "rgba(239, 177, 120, .035)");
+  const glow = ctx.createRadialGradient(pointerX, pointerY, 0, pointerX, pointerY, Math.min(ambientWidth, ambientHeight) * 0.5);
+  glow.addColorStop(0, "rgba(255, 121, 81, .2)");
+  glow.addColorStop(0.38, "rgba(239, 177, 120, .06)");
   glow.addColorStop(1, "rgba(239, 177, 120, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, ambientWidth, ambientHeight);
-  const points = ambientPoints.map((point) => ({
-    x: point.x * ambientWidth + Math.sin(seconds * 0.16 + point.phase) * 13,
-    y:
-      point.y * ambientHeight +
-      Math.cos(seconds * 0.13 + point.phase) * 10 -
-      (ambientScroll - 0.5) * 34,
-    radius: point.radius,
-  }));
-  ctx.lineWidth = 0.6;
+  const points = ambientPoints
+    .filter((_, index) => ambientWidth >= 640 || index % 2 === 0)
+    .map((point) => {
+      const baseX = point.x * ambientWidth + Math.sin(seconds * 0.16 + point.phase) * 24;
+      const baseY =
+        point.y * ambientHeight +
+        Math.cos(seconds * 0.13 + point.phase) * 18 -
+        (ambientScroll - 0.5) * 34;
+      const pointerInfluence = Math.max(
+        0,
+        1 - Math.hypot(baseX - pointerX, baseY - pointerY) / 360,
+      );
+      return {
+        x: baseX + (pointerX - baseX) * pointerInfluence * 0.035,
+        y: baseY + (pointerY - baseY) * pointerInfluence * 0.035,
+        radius: point.radius,
+      };
+    });
+  const maxLinkDistance = Math.min(290, Math.max(180, ambientWidth * 0.24));
+  const links = new Set();
+  ctx.lineWidth = 0.75;
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index];
-    let nearest = null;
-    let nearestDistance = Infinity;
-    for (let next = index + 1; next < points.length; next += 1) {
+    const neighbors = [];
+    for (let next = 0; next < points.length; next += 1) {
+      if (next === index) continue;
       const candidate = points[next];
       const distance = Math.hypot(point.x - candidate.x, point.y - candidate.y);
-      if (distance < nearestDistance) {
-        nearest = candidate;
-        nearestDistance = distance;
-      }
+      if (distance < maxLinkDistance) neighbors.push({ index: next, distance });
     }
-    if (nearest && nearestDistance < Math.min(230, ambientWidth * 0.22)) {
-      ctx.strokeStyle = `rgba(196, 161, 137, ${Math.max(0, 0.09 - nearestDistance / 3600)})`;
-      ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
-      ctx.lineTo(nearest.x, nearest.y);
-      ctx.stroke();
-    }
+    neighbors
+      .sort((left, right) => left.distance - right.distance)
+      .slice(0, 4)
+      .forEach(({ index: neighborIndex, distance }) => {
+        const linkKey = index < neighborIndex ? `${index}:${neighborIndex}` : `${neighborIndex}:${index}`;
+        if (links.has(linkKey)) return;
+        links.add(linkKey);
+        const neighbor = points[neighborIndex];
+        const midpointX = (point.x + neighbor.x) / 2;
+        const midpointY = (point.y + neighbor.y) / 2;
+        const pointerFocus = Math.max(
+          0,
+          1 - Math.hypot(midpointX - pointerX, midpointY - pointerY) / 320,
+        );
+        const wave =
+          0.55 +
+          Math.sin(seconds * 0.95 + index * 0.37 + neighborIndex * 0.19 - distance * 0.012) *
+            0.45;
+        const strength =
+          0.055 + wave * 0.095 + pointerFocus * 0.05 - (distance / maxLinkDistance) * 0.025;
+        ctx.strokeStyle = `rgba(220, 181, 164, ${Math.max(0.045, strength)})`;
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y);
+        ctx.lineTo(neighbor.x, neighbor.y);
+        ctx.stroke();
+      });
   }
   points.forEach((point, index) => {
     const pulse = 0.65 + Math.sin(seconds * 0.8 + index) * 0.2;
-    ctx.fillStyle = `rgba(255, 151, 119, ${0.16 * pulse})`;
+    const pointerDistance = Math.hypot(point.x - pointerX, point.y - pointerY);
+    const focus = Math.max(0, 1 - pointerDistance / 280);
+    ctx.fillStyle = `rgba(255, 151, 119, ${0.24 * pulse + focus * 0.16})`;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, point.radius * pulse, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, point.radius * pulse + focus * 1.6, 0, Math.PI * 2);
     ctx.fill();
   });
   ambientFrame = window.requestAnimationFrame(drawAmbientCanvas);
