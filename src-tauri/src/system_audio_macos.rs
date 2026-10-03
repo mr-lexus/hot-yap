@@ -69,7 +69,7 @@ fn settable(device: u32, mut addr: AudioObjectPropertyAddress) -> bool {
 impl Controller {
     pub fn open(mode: SystemAudio) -> Result<Self, String> {
         let device = read::<u32>(
-            kAudioObjectSystemObject,
+            kAudioObjectSystemObject as u32,
             address(
                 kAudioHardwarePropertyDefaultOutputDevice,
                 kAudioObjectPropertyScopeGlobal,
