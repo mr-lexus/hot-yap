@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { cursorPosition, getCurrentWindow, monitorFromPoint, PhysicalPosition, primaryMonitor } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icons";
 import type { StatusReport } from "./types";
 import { applyAppearance, browserSystemTheme, resolveLogoVariant, resolvePanelTheme, savedIconPreference, type Accent, type IconPreference, type Theme } from "./appearance";
+import { createSubscriptionScope } from "./subscriptions";
+import { DEFAULT_STATUS } from "./status";
 import "./overlay.css";
 
 type OverlayMode = "idle" | "recording" | "processing" | "success" | "copy-error" | "error" | "ready";
@@ -25,60 +27,9 @@ async function positionOverlay() {
   await current.setPosition(new PhysicalPosition(x, y));
 }
 
-const EMPTY_STATUS: StatusReport = {
-  model_status: "not_downloaded",
-  model_error: null,
-  engine_status: "stopped",
-  engine_error: null,
-  device: null,
-  compute_type: null,
-  phase: "idle",
-  mic_name: null,
-  hotkey: "Ctrl+Shift+Space",
-  hotkey_registered: false,
-  hotkey_warning: null,
-  last_text: null,
-  last_copied: false,
-  worker_alive: true,
-  last_error: null,
-  last_warning: null,
-  models: [],
-  current_model_id: null,
-  model_progress: null,
-  transcribe_progress: null,
-  transcribe_elapsed: 0,
-  audio_level: 0,
-  audio_spectrum: [],
-  stt_provider: "local",
-  stt_model: "",
-  stt_ready: false,
-  text_provider: "none",
-  local_device: "auto",
-  cuda_runtime: {
-    checked: false,
-    gpu_available: false,
-    runtime_ok: true,
-    missing: [],
-    progress: null,
-    error: null,
-  },
-  worker_install: {
-    progress: null,
-    error: null,
-  },
-  cuda_supported: true,
-  provider_settings: {
-    stt_provider: "local",
-    text_provider: "none",
-    postprocess_prompt: "",
-    local_device: "auto",
-    providers: {},
-  },
-};
-
 export default function Overlay() {
   const { t, i18n } = useTranslation();
-  const [status, setStatus] = useState(EMPTY_STATUS);
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   const [mode, setMode] = useState<OverlayMode>("idle");
   const [iconPreference, setIconPreference] = useState<IconPreference>(savedIconPreference);
   const [systemTheme, setSystemTheme] = useState<Theme>(browserSystemTheme);
@@ -103,18 +54,15 @@ export default function Overlay() {
   useEffect(() => {
     document.documentElement.classList.add("overlay-page");
     let cancelled = false;
-    const unlisteners: UnlistenFn[] = [];
+    const subscriptions = createSubscriptionScope(console.error);
     const systemThemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const syncBrowserTheme = () => setSystemTheme(browserSystemTheme());
     systemThemeQuery.addEventListener("change", syncBrowserTheme);
 
-    void invoke<StatusReport>("get_status").then((current) => {
-      if (!cancelled) setStatus(current);
-    }).catch(() => {});
     void positionOverlay().catch(() => {});
 
     void (async () => {
-      unlisteners.push(await listen("hotyap:overlay-open", () => {
+      await subscriptions.add(listen("hotyap:overlay-open", () => {
         void positionOverlay().catch(() => {});
         window.setTimeout(() => {
           void getCurrentWindow().setIgnoreCursorEvents(true).catch(() => {});
@@ -123,34 +71,34 @@ export default function Overlay() {
         if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current);
         changeMode("recording");
       }));
-      unlisteners.push(await listen<{ language: "ru" | "en" }>("hotyap:language", (event) => {
+      await subscriptions.add(listen<{ language: "ru" | "en" }>("hotyap:language", (event) => {
         void i18n.changeLanguage(event.payload.language);
       }));
-      unlisteners.push(await listen<{ theme: Theme; accent: Accent }>("hotyap:appearance", (event) => {
+      await subscriptions.add(listen<{ theme: Theme; accent: Accent }>("hotyap:appearance", (event) => {
         applyAppearance(event.payload.theme, event.payload.accent);
       }));
-      unlisteners.push(await listen<{ preference: IconPreference }>("hotyap:icon-preference", (event) => {
+      await subscriptions.add(listen<{ preference: IconPreference }>("hotyap:icon-preference", (event) => {
         setIconPreference(event.payload.preference);
       }));
-      unlisteners.push(await getCurrentWindow().onThemeChanged((event) => {
+      await subscriptions.add(getCurrentWindow().onThemeChanged((event) => {
         setSystemTheme(event.payload);
       }));
       void getCurrentWindow().theme().then((value) => {
         if (!cancelled && value) setSystemTheme(value);
       }).catch(() => {});
-      unlisteners.push(await listen<{ message?: string }>("hotyap:overlay-error", () => {
+      await subscriptions.add(listen<{ message?: string }>("hotyap:overlay-error", () => {
         if (!activeRef.current) return;
         changeMode("error");
         scheduleHide(2600);
       }));
-      unlisteners.push(await listen("hotyap:model-ready", () => {
+      await subscriptions.add(listen("hotyap:model-ready", () => {
         void positionOverlay().catch(() => {});
         activeRef.current = true;
         if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current);
         changeMode("ready");
         scheduleHide(2200);
       }));
-      unlisteners.push(await listen<StatusReport>("vox:status", (event) => {
+      await subscriptions.add(listen<StatusReport>("vox:status", (event) => {
         const next = event.payload;
         setStatus(next);
         if (!activeRef.current) return;
@@ -180,20 +128,22 @@ export default function Overlay() {
           }
         }
       }));
-      unlisteners.push(await listen<{ elapsed: number; fraction?: number }>("vox:transcribe-progress", (event) => {
+      await subscriptions.add(listen<{ elapsed: number; fraction?: number }>("vox:transcribe-progress", (event) => {
         setStatus((previous) => ({
           ...previous,
           transcribe_elapsed: event.payload.elapsed,
           transcribe_progress: event.payload.fraction ?? previous.transcribe_progress,
         }));
       }));
-      unlisteners.push(await listen<{ level: number; spectrum: number[] }>("vox:audio-meter", (event) => {
+      await subscriptions.add(listen<{ level: number; spectrum: number[] }>("vox:audio-meter", (event) => {
         setStatus((previous) => ({
           ...previous,
           audio_level: event.payload.level,
           audio_spectrum: event.payload.spectrum,
         }));
       }));
+      const current = await invoke<StatusReport>("get_status").catch(() => null);
+      if (!cancelled && current) setStatus(current);
     })();
 
     return () => {
@@ -201,7 +151,7 @@ export default function Overlay() {
       document.documentElement.classList.remove("overlay-page");
       systemThemeQuery.removeEventListener("change", syncBrowserTheme);
       if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current);
-      unlisteners.forEach((unlisten) => unlisten());
+      subscriptions.dispose();
     };
   }, []);
 

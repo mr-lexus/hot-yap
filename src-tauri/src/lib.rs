@@ -1,8 +1,12 @@
 mod audio;
+mod cancellation;
 mod commands;
 mod error;
+mod history;
+mod media;
 mod providers;
 mod state;
+mod storage;
 mod worker;
 
 use std::path::Path;
@@ -20,9 +24,14 @@ use state::{emit_status, AppState, AppStateInner, ModelInfo, ModelTier};
 const DEFAULT_HOTKEY: &str = "Ctrl+Shift+Space";
 const HOTKEY_FILE: &str = "hotkey.txt";
 const PROVIDER_SETTINGS_FILE: &str = "providers.json";
+const HISTORY_FILE: &str = "history.json";
 
 fn default_models() -> Vec<ModelInfo> {
-    vec![
+    default_models_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn default_models_for(target_os: &str, target_arch: &str) -> Vec<ModelInfo> {
+    let mut models = vec![
         ModelInfo {
             id: "russian-first-int8-float16".to_string(),
             name: "Russian First · Int8 / Float16".to_string(),
@@ -31,6 +40,7 @@ fn default_models() -> Vec<ModelInfo> {
             format: "CTranslate2 · Int8 / Float16".to_string(),
             size_mb: 819,
             repo_id: "coriollon/whisper-large-v3-turbo-russian".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: Some("ct2_int8_float16".to_string()),
             allow_patterns: Some(vec!["ct2_int8_float16/*".to_string()]),
             source_url: "https://huggingface.co/coriollon/whisper-large-v3-turbo-russian".to_string(),
@@ -50,6 +60,7 @@ fn default_models() -> Vec<ModelInfo> {
             format: "CTranslate2 · Int16".to_string(),
             size_mb: 1629,
             repo_id: "coriollon/whisper-large-v3-turbo-russian".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: Some("ct2-int16".to_string()),
             allow_patterns: Some(vec!["ct2-int16/*".to_string()]),
             source_url: "https://huggingface.co/coriollon/whisper-large-v3-turbo-russian".to_string(),
@@ -69,6 +80,7 @@ fn default_models() -> Vec<ModelInfo> {
             format: "CTranslate2 · Int8 / Float16".to_string(),
             size_mb: 819,
             repo_id: "coriollon/whisper-large-v3-turbo-russian-codeswitch".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: Some("ct2_int8_float16".to_string()),
             allow_patterns: Some(vec!["ct2_int8_float16/*".to_string()]),
             source_url: "https://huggingface.co/coriollon/whisper-large-v3-turbo-russian-codeswitch".to_string(),
@@ -85,9 +97,10 @@ fn default_models() -> Vec<ModelInfo> {
             name: "RuEn · Tiny".to_string(),
             description: "Smallest general multilingual Whisper build. Fastest option for short Russian/English dictation.".to_string(),
             family: "RuEn".to_string(),
-            format: "CTranslate2 · Int8".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
             size_mb: 78,
             repo_id: "Systran/faster-whisper-tiny".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: None,
             allow_patterns: Some(vec!["*.bin".to_string(), "*.json".to_string(), "*.txt".to_string()]),
             source_url: "https://huggingface.co/Systran/faster-whisper-tiny".to_string(),
@@ -104,9 +117,10 @@ fn default_models() -> Vec<ModelInfo> {
             name: "RuEn · Base".to_string(),
             description: "Light multilingual build with a little more recognition quality than Tiny.".to_string(),
             family: "RuEn".to_string(),
-            format: "CTranslate2 · Int8".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
             size_mb: 148,
             repo_id: "Systran/faster-whisper-base".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: None,
             allow_patterns: Some(vec!["*.bin".to_string(), "*.json".to_string(), "*.txt".to_string()]),
             source_url: "https://huggingface.co/Systran/faster-whisper-base".to_string(),
@@ -123,9 +137,10 @@ fn default_models() -> Vec<ModelInfo> {
             name: "RuEn · Small".to_string(),
             description: "Balanced multilingual model for faster everyday dictation.".to_string(),
             family: "RuEn".to_string(),
-            format: "CTranslate2 · Int8".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
             size_mb: 486,
             repo_id: "Systran/faster-whisper-small".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: None,
             allow_patterns: Some(vec!["*.bin".to_string(), "*.json".to_string(), "*.txt".to_string()]),
             source_url: "https://huggingface.co/Systran/faster-whisper-small".to_string(),
@@ -142,9 +157,10 @@ fn default_models() -> Vec<ModelInfo> {
             name: "RuEn · Medium".to_string(),
             description: "Higher-quality multilingual model. A practical step up from Small.".to_string(),
             family: "RuEn".to_string(),
-            format: "CTranslate2 · Int8".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
             size_mb: 1531,
             repo_id: "Systran/faster-whisper-medium".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: None,
             allow_patterns: Some(vec!["*.bin".to_string(), "*.json".to_string(), "*.txt".to_string()]),
             source_url: "https://huggingface.co/Systran/faster-whisper-medium".to_string(),
@@ -157,13 +173,34 @@ fn default_models() -> Vec<ModelInfo> {
             tier: ModelTier::Heavy,
         },
         ModelInfo {
+            id: "roen-large-v3-turbo".to_string(),
+            name: "RuEn · Large v3 Turbo".to_string(),
+            description: "General multilingual Whisper Turbo for Russian/English dictation. Fewer decoder layers than Large v3; CUDA recommended, CPU supported.".to_string(),
+            family: "RuEn".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
+            size_mb: 1622,
+            repo_id: "mobiuslabsgmbh/faster-whisper-large-v3-turbo".to_string(),
+            backend: "ctranslate2".to_string(),
+            ct2_subdir: None,
+            allow_patterns: Some(vec!["model.bin".to_string(), "config.json".to_string(), "preprocessor_config.json".to_string(), "tokenizer.json".to_string(), "vocabulary.json".to_string()]),
+            source_url: "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo".to_string(),
+            revision: Some("0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf".to_string()),
+            updated_at: Some("2025-11-05".to_string()),
+            downloads: Some(1_834_450),
+            tags: vec!["RU".to_string(), "EN".to_string(), "RuEn".to_string(), "Turbo".to_string(), "Multilingual".to_string()],
+            downloaded: false,
+            loaded: false,
+            tier: ModelTier::Heavy,
+        },
+        ModelInfo {
             id: "roen-large-v3".to_string(),
             name: "RuEn · Large v3".to_string(),
-            description: "Maximum general multilingual quality. Requires substantial memory and is slowest on CPU.".to_string(),
+            description: "Full multilingual Whisper Large v3 for difficult recordings. Requires more memory and decoding time than Turbo, especially on CPU.".to_string(),
             family: "RuEn".to_string(),
-            format: "CTranslate2 · Int8".to_string(),
+            format: "CTranslate2 · FP16 weights".to_string(),
             size_mb: 3091,
             repo_id: "Systran/faster-whisper-large-v3".to_string(),
+            backend: "ctranslate2".to_string(),
             ct2_subdir: None,
             allow_patterns: Some(vec!["*.bin".to_string(), "*.json".to_string(), "*.txt".to_string()]),
             source_url: "https://huggingface.co/Systran/faster-whisper-large-v3".to_string(),
@@ -175,15 +212,165 @@ fn default_models() -> Vec<ModelInfo> {
             loaded: false,
             tier: ModelTier::Heavy,
         },
-    ]
+    ];
+
+    if target_os == "macos" && target_arch == "aarch64" {
+        models.splice(
+            0..0,
+            [
+                ModelInfo {
+                    id: "apple-silicon-small".to_string(),
+                    name: "Apple Silicon · Small".to_string(),
+                    description: "Fast multilingual Whisper model for everyday Russian/English dictation on M1, M2, M3 and newer Apple chips.".to_string(),
+                    family: "Apple Silicon".to_string(),
+                    format: "MLX · Metal · FP16".to_string(),
+                    size_mb: 481,
+                    repo_id: "mlx-community/whisper-small-mlx".to_string(),
+                    backend: "mlx".to_string(),
+                    ct2_subdir: None,
+                    allow_patterns: Some(vec![
+                        "*.json".to_string(),
+                        "*.npz".to_string(),
+                        "*.safetensors".to_string(),
+                        "*.tiktoken".to_string(),
+                    ]),
+                    source_url: "https://huggingface.co/mlx-community/whisper-small-mlx".to_string(),
+                    revision: Some("45f3915923c7a79a5a5b5a7d909d39aeb0e5630e".to_string()),
+                    updated_at: Some("2026-04-12".to_string()),
+                    downloads: Some(255_692),
+                    tags: vec![
+                        "RU".to_string(),
+                        "EN".to_string(),
+                        "Apple Silicon".to_string(),
+                        "Metal".to_string(),
+                        "Fast".to_string(),
+                    ],
+                    downloaded: false,
+                    loaded: false,
+                    tier: ModelTier::Medium,
+                },
+                ModelInfo {
+                    id: "apple-silicon-turbo".to_string(),
+                    name: "Apple Silicon · Large v3 Turbo".to_string(),
+                    description: "Quality-focused multilingual Whisper Turbo model accelerated by MLX and Metal on Apple Silicon.".to_string(),
+                    family: "Apple Silicon".to_string(),
+                    format: "MLX · Metal · FP16".to_string(),
+                    size_mb: 1610,
+                    repo_id: "mlx-community/whisper-large-v3-turbo".to_string(),
+                    backend: "mlx".to_string(),
+                    ct2_subdir: None,
+                    allow_patterns: Some(vec![
+                        "*.json".to_string(),
+                        "*.npz".to_string(),
+                        "*.safetensors".to_string(),
+                        "*.tiktoken".to_string(),
+                    ]),
+                    source_url: "https://huggingface.co/mlx-community/whisper-large-v3-turbo".to_string(),
+                    revision: Some("a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb".to_string()),
+                    updated_at: Some("2026-04-12".to_string()),
+                    downloads: Some(311_932),
+                    tags: vec![
+                        "RU".to_string(),
+                        "EN".to_string(),
+                        "Apple Silicon".to_string(),
+                        "Metal".to_string(),
+                        "Quality".to_string(),
+                    ],
+                    downloaded: false,
+                    loaded: false,
+                    tier: ModelTier::Heavy,
+                },
+                ModelInfo {
+                    id: "apple-silicon-large-v3".to_string(),
+                    name: "Apple Silicon · Large v3".to_string(),
+                    description: "Full multilingual Whisper Large v3 through MLX/Metal. A quality-oriented alternative for difficult recordings; uses more memory and decoding time than Turbo.".to_string(),
+                    family: "Apple Silicon".to_string(),
+                    format: "MLX · Metal · FP16".to_string(),
+                    size_mb: 3084,
+                    repo_id: "mlx-community/whisper-large-v3-mlx".to_string(),
+                    backend: "mlx".to_string(),
+                    ct2_subdir: None,
+                    allow_patterns: Some(vec!["config.json".to_string(), "weights.npz".to_string()]),
+                    source_url: "https://huggingface.co/mlx-community/whisper-large-v3-mlx".to_string(),
+                    revision: Some("49e6aa286ad60c14352c404340ded53710378a11".to_string()),
+                    updated_at: Some("2026-04-12".to_string()),
+                    downloads: Some(61_825),
+                    tags: vec!["RU".to_string(), "EN".to_string(), "Apple Silicon".to_string(), "Metal".to_string(), "Quality".to_string()],
+                    downloaded: false,
+                    loaded: false,
+                    tier: ModelTier::Heavy,
+                },
+            ],
+        );
+    }
+
+    models
+}
+
+pub(crate) fn model_backend_supported(backend: &str) -> bool {
+    model_backend_supported_for(backend, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn model_backend_supported_for(backend: &str, target_os: &str, target_arch: &str) -> bool {
+    match backend {
+        "ctranslate2" => true,
+        "mlx" => target_os == "macos" && target_arch == "aarch64",
+        _ => false,
+    }
+}
+
+pub(crate) fn model_files_present(model_path: &Path, backend: &str) -> bool {
+    let has_weights = |path: &Path| {
+        path.metadata()
+            .map(|metadata| metadata.is_file() && metadata.len() > 1_000_000)
+            .unwrap_or(false)
+    };
+    match backend {
+        "ctranslate2" => {
+            has_weights(&model_path.join("model.bin"))
+                && ["config.json", "tokenizer.json"]
+                    .iter()
+                    .all(|name| model_path.join(name).is_file())
+                && ["vocabulary.json", "vocabulary.txt"]
+                    .iter()
+                    .any(|name| model_path.join(name).is_file())
+        }
+        "mlx" => {
+            model_path.join("config.json").is_file()
+                && ["weights.npz", "weights.safetensors", "model.safetensors"]
+                    .iter()
+                    .any(|name| has_weights(&model_path.join(name)))
+        }
+        _ => false,
+    }
 }
 
 fn valid_catalog_entry(model: &ModelInfo) -> bool {
+    let valid_component = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 100
+            && value != "."
+            && value != ".."
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    let repo_parts = model.repo_id.split('/').collect::<Vec<_>>();
     !model.id.is_empty()
         && model.id.len() <= 80
-        && model.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && model.repo_id.split('/').count() == 2
+        && model
+            .id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && repo_parts.len() == 2
+        && repo_parts.iter().all(|part| valid_component(part))
+        && model
+            .ct2_subdir
+            .as_deref()
+            .map(valid_component)
+            .unwrap_or(true)
         && !model.source_url.is_empty()
+        && model_backend_supported(&model.backend)
 }
 
 fn load_catalog(path: &Path) -> Vec<ModelInfo> {
@@ -204,18 +391,26 @@ fn load_catalog(path: &Path) -> Vec<ModelInfo> {
                 *tag = "RuEn".to_string();
             }
         }
-        if let Some(existing) = models.iter_mut().find(|item| item.id == model.id) {
-            *existing = model;
-        } else {
+        // Bundled, reviewed metadata wins over stale discovery cache entries.
+        if !models.iter().any(|item| same_model(item, &model)) {
             models.push(model);
         }
     }
     models
 }
 
+pub(crate) fn same_model(left: &ModelInfo, right: &ModelInfo) -> bool {
+    left.id == right.id
+        || (left.repo_id == right.repo_id
+            && left.ct2_subdir == right.ct2_subdir
+            && left.backend == right.backend)
+}
+
 pub(crate) fn persist_catalog(path: &Path, models: &[ModelInfo]) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(models).map_err(|e| format!("cannot encode model catalog: {e}"))?;
-    std::fs::write(path, json).map_err(|e| format!("cannot save model catalog: {e}"))
+    let json = serde_json::to_string_pretty(models)
+        .map_err(|e| format!("cannot encode model catalog: {e}"))?;
+    storage::write_atomic(path, json.as_bytes())
+        .map_err(|e| format!("cannot save model catalog: {e}"))
 }
 
 #[tauri::command]
@@ -295,16 +490,18 @@ pub(crate) fn refresh_tray_menu(app: &AppHandle) {
             .filter(|m| m.downloaded)
             .map(|m| (m.id.clone(), m.name.clone(), m.size_mb))
             .collect();
-        let cloud_providers: Vec<String> = inner
-            .provider_settings
-            .providers
+        let cloud_providers: Vec<String> = crate::providers::STT_PROVIDER_IDS
             .iter()
-            .filter(|(id, config)| {
-                config.api_key_set
-                    && crate::providers::STT_PROVIDER_IDS.contains(&id.as_str())
-                    && id.as_str() != "local"
+            .copied()
+            .filter(|id| *id != "local")
+            .filter(|id| {
+                inner
+                    .provider_settings
+                    .providers
+                    .get(*id)
+                    .is_some_and(|config| config.api_key_set)
             })
-            .map(|(id, _)| id.clone())
+            .map(str::to_string)
             .collect();
         (
             inner.tray_is_ru,
@@ -363,23 +560,19 @@ pub(crate) fn refresh_tray_menu(app: &AppHandle) {
         submenu = submenu.separator();
     }
     for id in &cloud_providers {
-        if let Ok(item) = CheckMenuItemBuilder::with_id(
-            format!("provider:{id}"),
-            provider_display_name(id),
-        )
-        .checked(stt_provider == *id)
-        .build(app)
+        if let Ok(item) =
+            CheckMenuItemBuilder::with_id(format!("provider:{id}"), provider_display_name(id))
+                .checked(stt_provider == *id)
+                .build(app)
         {
             submenu = submenu.item(&item);
         }
     }
 
     let mut menu = MenuBuilder::new(app);
-    if let Ok(item) = MenuItemBuilder::with_id(
-        "show",
-        if window_visible { hide_text } else { show_text },
-    )
-    .build(app)
+    if let Ok(item) =
+        MenuItemBuilder::with_id("show", if window_visible { hide_text } else { show_text })
+            .build(app)
     {
         menu = menu.item(&item);
     }
@@ -398,13 +591,11 @@ pub(crate) fn refresh_tray_menu(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -451,6 +642,7 @@ pub fn run() {
             let hotkey_path = data_dir.join(HOTKEY_FILE);
             let provider_settings_path = data_dir.join(PROVIDER_SETTINGS_FILE);
             let provider_settings = providers::load_settings(&provider_settings_path);
+            app.manage(history::HistoryStore::load(data_dir.join(HISTORY_FILE)));
             let configured_hotkey = std::fs::read_to_string(&hotkey_path)
                 .ok()
                 .map(|value| value.trim().to_string())
@@ -463,7 +655,7 @@ pub fn run() {
             let mut models_with_status = load_catalog(&catalog_path);
             for model in &mut models_with_status {
                 let model_path = model_dir.join(&model.id).join(model.ct2_subdir.as_deref().unwrap_or(""));
-                model.downloaded = model_path.join("model.bin").exists();
+                model.downloaded = model_files_present(&model_path, &model.backend);
             }
 
             app.manage(AppState(Mutex::new(AppStateInner {
@@ -505,6 +697,7 @@ pub fn run() {
                 tray_menu_signature: String::new(),
                 transcribe_cancel: Arc::new(AtomicBool::new(false)),
                 transcribe_request_id: None,
+                media_progress_range: None,
             })));
 
             // Start the Python worker asynchronously; the app still opens if it fails.
@@ -530,7 +723,7 @@ pub fn run() {
                     // Refresh model status from disk.
                     if let Ok(msg) = worker::request(
                         &app2,
-                        &*app2.state::<Arc<worker::Worker>>(),
+                        &app2.state::<Arc<worker::Worker>>(),
                         serde_json::json!({"command": "status", "model_dir": model_dir, "catalog": catalog}),
                         Duration::from_secs(15),
                     )
@@ -568,7 +761,7 @@ pub fn run() {
                 }
                 emit_status(&app2);
             });
-            emit_status(&app.handle());
+            emit_status(app.handle());
 
             // Register the configured global hotkey; failure must not kill the app.
             match app
@@ -593,7 +786,7 @@ pub fn run() {
                         Some(format!("Could not register {configured_hotkey}: {e}"));
                 }
             }
-            emit_status(&app.handle());
+            emit_status(app.handle());
 
             // System tray icon — detect system locale for initial text.
             let is_ru = std::env::var("LANG")
@@ -686,6 +879,15 @@ pub fn run() {
             commands::get_provider_settings,
             commands::save_provider_settings,
             commands::delete_provider_secret,
+            commands::get_history,
+            commands::set_history_favorite,
+            commands::delete_history_entry,
+            commands::clear_history,
+            commands::copy_history_entry,
+            commands::inspect_media_file,
+            commands::transcribe_media_file,
+            commands::copy_transcript_text,
+            commands::save_transcript_file,
             commands::cancel_transcription,
             commands::set_tray_language,
             commands::set_app_icon
@@ -733,4 +935,89 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn cached_discovery_cannot_replace_reviewed_models() {
+        let path = std::env::temp_dir().join(format!("hotyap-catalog-{}.json", std::process::id()));
+        let mut cached = default_models().remove(0);
+        let reviewed_revision = cached.revision.clone();
+        cached.revision = Some("unreviewed".into());
+        cached.description = "stale discovery label".into();
+        let id = cached.id.clone();
+        std::fs::write(&path, serde_json::to_vec(&vec![cached]).unwrap()).unwrap();
+        let restored = load_catalog(&path);
+        let model = restored.iter().find(|model| model.id == id).unwrap();
+        assert_eq!(model.revision, reviewed_revision);
+        assert_ne!(model.description, "stale discovery label");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn mlx_models_are_only_offered_on_apple_silicon() {
+        let apple = default_models_for("macos", "aarch64");
+        assert_eq!(
+            apple.iter().filter(|model| model.backend == "mlx").count(),
+            3
+        );
+        assert!(default_models_for("macos", "x86_64")
+            .iter()
+            .all(|model| model.backend != "mlx"));
+        assert!(default_models_for("windows", "x86_64")
+            .iter()
+            .all(|model| model.backend != "mlx"));
+    }
+
+    #[test]
+    fn backend_compatibility_matches_target() {
+        assert!(model_backend_supported_for(
+            "ctranslate2",
+            "windows",
+            "x86_64"
+        ));
+        assert!(model_backend_supported_for("mlx", "macos", "aarch64"));
+        assert!(!model_backend_supported_for("mlx", "macos", "x86_64"));
+        assert!(!model_backend_supported_for("unknown", "macos", "aarch64"));
+    }
+
+    #[test]
+    fn catalog_paths_cannot_escape_the_model_directory() {
+        let mut model = default_models_for("windows", "x86_64").remove(0);
+        model.ct2_subdir = Some("../outside".into());
+        assert!(!valid_catalog_entry(&model));
+        model.ct2_subdir = None;
+        model.repo_id = "../outside".into();
+        assert!(!valid_catalog_entry(&model));
+    }
+
+    #[test]
+    fn model_file_check_is_backend_specific() {
+        let root = std::env::temp_dir().join(format!(
+            "hotyap-model-files-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let ct2 = std::fs::File::create(root.join("model.bin")).unwrap();
+        ct2.set_len(1_000_001).unwrap();
+        assert!(!model_files_present(&root, "ctranslate2"));
+        for name in ["config.json", "tokenizer.json", "vocabulary.json"] {
+            std::fs::write(root.join(name), b"{}").unwrap();
+        }
+        assert!(model_files_present(&root, "ctranslate2"));
+        assert!(!model_files_present(&root, "mlx"));
+        std::fs::write(root.join("config.json"), b"{}").unwrap();
+        let mlx = std::fs::File::create(root.join("weights.safetensors")).unwrap();
+        mlx.set_len(1_000_001).unwrap();
+        assert!(model_files_present(&root, "mlx"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

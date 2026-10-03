@@ -26,6 +26,8 @@ jobs:
           node-version: 22.23.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Test frontend lifecycle helpers
+        run: pnpm test
       - name: Build desktop frontend
         run: pnpm build
       - name: Build landing
@@ -47,7 +49,51 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
       - name: Run Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Check Python sources
         run: python3 -m compileall -q backend
+      - name: Install Python test dependencies
+        run: python3 -m pip install "av>=14,<19" "numpy>=1.26,<3"
+      - name: Test worker protocol
+        run: python3 -m unittest discover -s backend/tests -p 'test_*.py' -v
+
+  apple-silicon-worker:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-release.txt
+      - name: Install release worker dependencies
+        run: python -m pip install --requirement backend/requirements-release.txt
+      - name: Run worker tests
+        run: python -m unittest discover -s backend/tests -p 'test_*.py' -v
+      - name: Verify MLX runtime through the worker protocol
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"id":1,"command":"verify_mlx_runtime","device":"cpu"}' \
+            '{"id":2,"command":"shutdown"}' \
+            | python backend/worker.py > mlx-smoke.jsonl
+          python - <<'PY'
+          import json
+          import pathlib
+
+          replies = {}
+          for line in pathlib.Path("mlx-smoke.jsonl").read_text(encoding="utf-8").splitlines():
+              payload = json.loads(line)
+              if "id" in payload:
+                  replies[payload["id"]] = payload
+          mlx = replies.get(1, {})
+          if not mlx.get("ok") or not mlx.get("available"):
+              raise SystemExit(f"MLX runtime verification failed: {mlx}")
+          if mlx.get("device") != "cpu":
+              raise SystemExit(f"MLX runtime used the wrong smoke-test device: {mlx}")
+          if replies.get(2, {}).get("event") != "shutdown_ack":
+              raise SystemExit(f"worker shutdown verification failed: {replies}")
+          PY

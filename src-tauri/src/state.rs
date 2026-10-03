@@ -78,6 +78,8 @@ pub struct ModelInfo {
     pub format: String,
     pub size_mb: u64,
     pub repo_id: String,
+    #[serde(default = "default_model_backend")]
+    pub backend: String,
     pub ct2_subdir: Option<String>,
     pub allow_patterns: Option<Vec<String>>,
     pub source_url: String,
@@ -88,6 +90,10 @@ pub struct ModelInfo {
     pub downloaded: bool,
     pub loaded: bool,
     pub tier: ModelTier,
+}
+
+fn default_model_backend() -> String {
+    "ctranslate2".into()
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,6 +129,7 @@ pub struct StatusReport {
     pub cuda_runtime: CudaRuntimeReport,
     pub worker_install: WorkerInstallReport,
     pub cuda_supported: bool,
+    pub metal_supported: bool,
     pub provider_settings: crate::providers::ProviderSettings,
 }
 
@@ -175,13 +182,19 @@ pub struct AppStateInner {
     pub transcribe_cancel: Arc<AtomicBool>,
     /// The worker request ID of the in-progress transcription (used to cancel the pending channel).
     pub transcribe_request_id: Option<u64>,
+    /// Maps worker transcription progress into the current file-transcription range.
+    pub media_progress_range: Option<(f32, f32)>,
 }
 
 pub struct AppState(pub Mutex<AppStateInner>);
 
 impl AppState {
     pub fn lock(&self) -> std::sync::MutexGuard<'_, AppStateInner> {
-        self.0.lock().unwrap()
+        self.0.lock().unwrap_or_else(|poisoned| {
+            log::error!("application state mutex was poisoned; recovering the last value");
+            self.0.clear_poison();
+            poisoned.into_inner()
+        })
     }
 }
 
@@ -236,6 +249,7 @@ impl AppStateInner {
             cuda_runtime: self.cuda_runtime.clone(),
             worker_install: self.worker_install.clone(),
             cuda_supported: !cfg!(target_os = "macos"),
+            metal_supported: cfg!(all(target_os = "macos", target_arch = "aarch64")),
             provider_settings: self.provider_settings.clone(),
         }
     }
@@ -254,16 +268,31 @@ pub fn on_worker_exit(app: &AppHandle) {
     {
         let st = app.state::<AppState>();
         let mut inner = st.lock();
-        inner.phase = Phase::Idle;
-        if matches!(inner.engine_status, EngineStatus::Loading | EngineStatus::Ready) {
+        let local_transcription = inner.provider_settings.stt_provider == "local";
+        if matches!(
+            inner.engine_status,
+            EngineStatus::Loading | EngineStatus::Ready
+        ) {
             inner.engine_status = EngineStatus::Error;
-            inner.engine_error = Some(
-                "Python engine stopped unexpectedly. Use 'Restart engine'.".to_string(),
-            );
+            inner.engine_error =
+                Some("Python engine stopped unexpectedly. Use 'Restart engine'.".to_string());
         }
-        inner.recorder = None;
-        inner.ptt_pressed = false;
-        inner.ptt_generation = inner.ptt_generation.wrapping_add(1);
+        inner.device = None;
+        inner.compute_type = None;
+        for model in &mut inner.models {
+            model.loaded = false;
+        }
+        if local_transcription {
+            inner.ptt_pressed = false;
+            inner.ptt_generation = inner.ptt_generation.wrapping_add(1);
+            // The transcription future owns the Transcribing -> Idle
+            // transition. Releasing it here would allow a second recording to
+            // reset the shared cancellation flag before that future unwinds.
+            if inner.phase != Phase::Transcribing {
+                inner.phase = Phase::Idle;
+                inner.recorder = None;
+            }
+        }
     }
     emit_status(app);
 }

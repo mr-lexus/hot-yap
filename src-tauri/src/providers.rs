@@ -1,8 +1,10 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use base64::Engine;
+use futures_util::StreamExt;
 use reqwest::multipart::{Form, Part};
 use reqwest::{Client, Response, Url};
 use serde::{Deserialize, Serialize};
@@ -10,6 +12,8 @@ use serde_json::{json, Value};
 
 const KEYRING_SERVICE: &str = "com.voxshift.app";
 const DEFAULT_PROMPT: &str = "Correct punctuation and casing in this speech transcript. Preserve the original wording, language switches, technical terms, code, paths, and commands. Return only the corrected transcript.";
+const MAX_API_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+static HTTP_CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
 
 pub const PROVIDER_IDS: &[&str] = &[
     "openai",
@@ -62,11 +66,22 @@ fn default_local_device() -> String {
     "auto".into()
 }
 
+fn local_device_supported(device: &str) -> bool {
+    match device {
+        "auto" | "cpu" => true,
+        "cuda" => !cfg!(target_os = "macos"),
+        "metal" => cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        _ => false,
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderSettings {
     pub stt_provider: String,
     pub text_provider: String,
     pub postprocess_prompt: String,
+    #[serde(default)]
+    pub history_enabled: bool,
     #[serde(default = "default_local_device")]
     pub local_device: String,
     pub providers: HashMap<String, ProviderConfig>,
@@ -75,22 +90,76 @@ pub struct ProviderSettings {
 impl Default for ProviderSettings {
     fn default() -> Self {
         let mut providers = HashMap::new();
-        providers.insert("openai".into(), config("https://api.openai.com/v1", "gpt-4o-mini-transcribe", "gpt-4.1-mini"));
-        providers.insert("deepgram".into(), config("https://api.deepgram.com/v1", "nova-3", ""));
-        providers.insert("groq".into(), config("https://api.groq.com/openai/v1", "whisper-large-v3-turbo", "llama-3.1-8b-instant"));
-        providers.insert("elevenlabs".into(), config("https://api.elevenlabs.io/v1", "scribe_v2", ""));
-        providers.insert("assemblyai".into(), config("https://api.assemblyai.com/v2", "universal-3-5-pro", ""));
-        providers.insert("gemini".into(), config("https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash", "gemini-2.5-flash"));
-        providers.insert("openrouter".into(), config("https://openrouter.ai/api/v1", "", "openai/gpt-4.1-mini"));
-        providers.insert("anthropic".into(), config("https://api.anthropic.com/v1", "", "claude-haiku-4-5-20251001"));
+        providers.insert(
+            "openai".into(),
+            config(
+                "https://api.openai.com/v1",
+                "gpt-4o-mini-transcribe",
+                "gpt-4.1-mini",
+            ),
+        );
+        providers.insert(
+            "deepgram".into(),
+            config("https://api.deepgram.com/v1", "nova-3", ""),
+        );
+        providers.insert(
+            "groq".into(),
+            config(
+                "https://api.groq.com/openai/v1",
+                "whisper-large-v3-turbo",
+                "llama-3.1-8b-instant",
+            ),
+        );
+        providers.insert(
+            "elevenlabs".into(),
+            config("https://api.elevenlabs.io/v1", "scribe_v2", ""),
+        );
+        providers.insert(
+            "assemblyai".into(),
+            config("https://api.assemblyai.com/v2", "universal-3-5-pro", ""),
+        );
+        providers.insert(
+            "gemini".into(),
+            config(
+                "https://generativelanguage.googleapis.com/v1beta",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash",
+            ),
+        );
+        providers.insert(
+            "openrouter".into(),
+            config("https://openrouter.ai/api/v1", "", "openai/gpt-4.1-mini"),
+        );
+        providers.insert(
+            "anthropic".into(),
+            config(
+                "https://api.anthropic.com/v1",
+                "",
+                "claude-haiku-4-5-20251001",
+            ),
+        );
         providers.insert("xai".into(), config("https://api.x.ai/v1", "", "grok-4.3"));
-        providers.insert("bedrock".into(), config("https://bedrock-runtime.us-east-1.amazonaws.com", "", "us.amazon.nova-2-lite-v1:0"));
-        providers.insert("ollama".into(), config("http://127.0.0.1:11434", "", "qwen2.5:7b"));
-        providers.insert("lmstudio".into(), config("http://127.0.0.1:1234/v1", "", "local-model"));
+        providers.insert(
+            "bedrock".into(),
+            config(
+                "https://bedrock-runtime.us-east-1.amazonaws.com",
+                "",
+                "us.amazon.nova-2-lite-v1:0",
+            ),
+        );
+        providers.insert(
+            "ollama".into(),
+            config("http://127.0.0.1:11434", "", "qwen2.5:7b"),
+        );
+        providers.insert(
+            "lmstudio".into(),
+            config("http://127.0.0.1:1234/v1", "", "local-model"),
+        );
         Self {
             stt_provider: "local".into(),
             text_provider: "none".into(),
             postprocess_prompt: DEFAULT_PROMPT.into(),
+            history_enabled: false,
             local_device: "auto".into(),
             providers,
         }
@@ -124,7 +193,7 @@ pub fn normalize(settings: &mut ProviderSettings) {
     if !TEXT_PROVIDER_IDS.contains(&settings.text_provider.as_str()) {
         settings.text_provider = "none".into();
     }
-    if !matches!(settings.local_device.as_str(), "auto" | "cuda" | "cpu") {
+    if !local_device_supported(&settings.local_device) {
         settings.local_device = "auto".into();
     }
     if settings.postprocess_prompt.trim().is_empty() {
@@ -133,7 +202,10 @@ pub fn normalize(settings: &mut ProviderSettings) {
         settings.postprocess_prompt = settings.postprocess_prompt.trim().to_string();
     }
     for (id, default_config) in defaults.providers {
-        let saved = settings.providers.entry(id.clone()).or_insert_with(|| default_config.clone());
+        let saved = settings
+            .providers
+            .entry(id.clone())
+            .or_insert_with(|| default_config.clone());
         if saved.endpoint.trim().is_empty() {
             saved.endpoint = default_config.endpoint;
         }
@@ -156,7 +228,9 @@ pub fn normalize(settings: &mut ProviderSettings) {
         saved.stt_model = saved.stt_model.trim().to_string();
         saved.text_model = saved.text_model.trim().to_string();
     }
-    settings.providers.retain(|id, _| PROVIDER_IDS.contains(&id.as_str()));
+    settings
+        .providers
+        .retain(|id, _| PROVIDER_IDS.contains(&id.as_str()));
 }
 
 pub fn validate(settings: &ProviderSettings) -> Result<(), String> {
@@ -166,7 +240,7 @@ pub fn validate(settings: &ProviderSettings) -> Result<(), String> {
     if !TEXT_PROVIDER_IDS.contains(&settings.text_provider.as_str()) {
         return Err("Unknown text-processing provider".into());
     }
-    if !matches!(settings.local_device.as_str(), "auto" | "cuda" | "cpu") {
+    if !local_device_supported(&settings.local_device) {
         return Err("Invalid local compute device".into());
     }
     if settings.postprocess_prompt.len() > 4000 {
@@ -192,29 +266,34 @@ pub fn validate(settings: &ProviderSettings) -> Result<(), String> {
 
 fn validate_endpoint(provider: &str, endpoint: &str) -> Result<(), String> {
     let url = Url::parse(endpoint).map_err(|_| format!("Invalid API endpoint for {provider}"))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| format!("API endpoint for {provider} must include a host"))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(format!(
+            "API endpoint for {provider} must not contain credentials"
+        ));
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(format!(
+            "API endpoint for {provider} must not contain a query or fragment"
+        ));
+    }
     match url.scheme() {
         "https" => Ok(()),
-        "http" if matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")) => Ok(()),
-        "http" => Err(format!("Insecure remote HTTP endpoint is not allowed for {provider}")),
+        "http" if matches!(host, "localhost" | "127.0.0.1" | "::1") => Ok(()),
+        "http" => Err(format!(
+            "Insecure remote HTTP endpoint is not allowed for {provider}"
+        )),
         _ => Err(format!("Unsupported endpoint scheme for {provider}")),
     }
 }
 
 pub fn persist_settings(path: &Path, settings: &ProviderSettings) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(settings).map_err(|e| format!("Cannot encode provider settings: {e}"))?;
-    let temporary = temporary_settings_path(path);
-    std::fs::write(&temporary, json).map_err(|e| format!("Cannot save provider settings: {e}"))?;
-    std::fs::rename(&temporary, path).map_err(|e| format!("Cannot replace provider settings: {e}"))
-}
-
-fn temporary_settings_path(path: &Path) -> PathBuf {
-    let mut temporary = path.as_os_str().to_os_string();
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    temporary.push(format!(".{nonce}.tmp"));
-    PathBuf::from(temporary)
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("Cannot encode provider settings: {e}"))?;
+    crate::storage::write_atomic(path, json.as_bytes())
+        .map_err(|e| format!("Cannot save provider settings: {e}"))
 }
 
 pub fn refresh_secret_statuses(settings: &mut ProviderSettings) {
@@ -242,7 +321,11 @@ pub fn stt_ready(settings: &ProviderSettings, local_engine_ready: bool) -> bool 
         return local_engine_ready;
     }
     selected_config(settings, &settings.stt_provider)
-        .map(|config| !config.endpoint.is_empty() && !config.stt_model.is_empty() && (!provider_needs_key(&settings.stt_provider) || config.api_key_set))
+        .map(|config| {
+            !config.endpoint.is_empty()
+                && !config.stt_model.is_empty()
+                && (!provider_needs_key(&settings.stt_provider) || config.api_key_set)
+        })
         .unwrap_or(false)
 }
 
@@ -257,15 +340,22 @@ pub fn store_secret(provider: &str, secret: &str) -> Result<(), String> {
     keyring::Entry::new(KEYRING_SERVICE, &format!("{provider}-api-key"))
         .map_err(|e| format!("Cannot access the operating-system credential store: {e}"))?
         .set_password(value)
-        .map_err(|e| format!("Cannot save the API key in the operating-system credential store: {e}"))
+        .map_err(|e| {
+            format!("Cannot save the API key in the operating-system credential store: {e}")
+        })
 }
 
 pub fn delete_secret(provider: &str) -> Result<(), String> {
+    if !PROVIDER_IDS.contains(&provider) {
+        return Err("Unknown provider".into());
+    }
     let entry = keyring::Entry::new(KEYRING_SERVICE, &format!("{provider}-api-key"))
         .map_err(|e| format!("Cannot access the operating-system credential store: {e}"))?;
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("Cannot delete the API key from the operating-system credential store: {e}")),
+        Err(e) => Err(format!(
+            "Cannot delete the API key from the operating-system credential store: {e}"
+        )),
     }
 }
 
@@ -298,19 +388,32 @@ fn env_secret(provider: &str) -> Option<String> {
         "lmstudio" => "LM_API_TOKEN",
         _ => return None,
     };
-    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
-fn selected_config<'a>(settings: &'a ProviderSettings, provider: &str) -> Result<&'a ProviderConfig, String> {
-    settings.providers.get(provider).ok_or_else(|| format!("Missing settings for {provider}"))
+fn selected_config<'a>(
+    settings: &'a ProviderSettings,
+    provider: &str,
+) -> Result<&'a ProviderConfig, String> {
+    settings
+        .providers
+        .get(provider)
+        .ok_or_else(|| format!("Missing settings for {provider}"))
 }
 
 fn client() -> Result<Client, String> {
-    Client::builder()
-        .user_agent("HotYap/0.1")
-        .timeout(Duration::from_secs(180))
-        .build()
-        .map_err(|e| format!("Cannot initialize the API client: {e}"))
+    HTTP_CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .user_agent("HotYap/0.1")
+                .timeout(Duration::from_secs(180))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|e| format!("Cannot initialize the API client: {e}"))
+        })
+        .clone()
 }
 
 fn endpoint(base: &str, path: &str) -> String {
@@ -319,27 +422,61 @@ fn endpoint(base: &str, path: &str) -> String {
 
 async fn response_json(provider: &str, response: Response) -> Result<Value, String> {
     let status = response.status();
-    let body = response.text().await.map_err(|e| format!("{provider} returned an unreadable response: {e}"))?;
-    if !status.is_success() {
-        let compact = body.chars().take(600).collect::<String>().replace(['\n', '\r'], " ");
-        return Err(format!("{provider} API returned HTTP {}: {compact}", status.as_u16()));
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_API_RESPONSE_BYTES as u64)
+    {
+        return Err(format!(
+            "{provider} returned an unexpectedly large response"
+        ));
     }
-    serde_json::from_str(&body).map_err(|e| format!("{provider} returned invalid JSON: {e}"))
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|e| format!("{provider} returned an unreadable response: {e}"))?;
+        if body.len().saturating_add(chunk.len()) > MAX_API_RESPONSE_BYTES {
+            return Err(format!(
+                "{provider} returned an unexpectedly large response"
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    if !status.is_success() {
+        let compact = String::from_utf8_lossy(&body)
+            .chars()
+            .take(600)
+            .collect::<String>()
+            .replace(['\n', '\r'], " ");
+        return Err(format!(
+            "{provider} API returned HTTP {}: {compact}",
+            status.as_u16()
+        ));
+    }
+    serde_json::from_slice(&body).map_err(|e| format!("{provider} returned invalid JSON: {e}"))
 }
 
 fn json_text(value: &Value, path: &[&str], provider: &str) -> Result<String, String> {
     let mut current = value;
     for part in path {
-        current = current.get(*part).ok_or_else(|| format!("{provider} response did not contain a transcript"))?;
+        current = current
+            .get(*part)
+            .ok_or_else(|| format!("{provider} response did not contain a transcript"))?;
     }
-    current.as_str().map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
+    current
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
         .ok_or_else(|| format!("{provider} returned an empty transcript"))
 }
 
 pub async fn transcribe(settings: &ProviderSettings, wav_path: &Path) -> Result<String, String> {
     let provider = settings.stt_provider.as_str();
     let config = selected_config(settings, provider)?;
-    let audio = tokio::fs::read(wav_path).await.map_err(|e| format!("Cannot read recorded audio: {e}"))?;
+    let audio = tokio::fs::read(wav_path)
+        .await
+        .map_err(|e| format!("Cannot read recorded audio: {e}"))?;
     match provider {
         "openai" | "groq" => transcribe_openai_compatible(provider, config, audio).await,
         "deepgram" => transcribe_deepgram(config, audio).await,
@@ -351,72 +488,160 @@ pub async fn transcribe(settings: &ProviderSettings, wav_path: &Path) -> Result<
     }
 }
 
-async fn transcribe_openai_compatible(provider: &str, config: &ProviderConfig, audio: Vec<u8>) -> Result<String, String> {
+async fn transcribe_openai_compatible(
+    provider: &str,
+    config: &ProviderConfig,
+    audio: Vec<u8>,
+) -> Result<String, String> {
     if audio.len() > 25 * 1024 * 1024 {
-        return Err(format!("{provider} accepts direct audio uploads up to 25 MB"));
+        return Err(format!(
+            "{provider} accepts direct audio uploads up to 25 MB"
+        ));
     }
     let key = secret_for(provider)?;
-    let part = Part::bytes(audio).file_name("recording.wav").mime_str("audio/wav")
+    let part = Part::bytes(audio)
+        .file_name("recording.wav")
+        .mime_str("audio/wav")
         .map_err(|e| format!("Cannot prepare audio upload: {e}"))?;
-    let form = Form::new().part("file", part).text("model", config.stt_model.clone());
-    let value = response_json(provider, client()?.post(endpoint(&config.endpoint, "/audio/transcriptions")).bearer_auth(key).multipart(form).send().await
-        .map_err(|e| format!("Cannot reach {provider}: {e}"))?).await?;
+    let form = Form::new()
+        .part("file", part)
+        .text("model", config.stt_model.clone());
+    let value = response_json(
+        provider,
+        client()?
+            .post(endpoint(&config.endpoint, "/audio/transcriptions"))
+            .bearer_auth(key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach {provider}: {e}"))?,
+    )
+    .await?;
     json_text(&value, &["text"], provider)
 }
 
 async fn transcribe_deepgram(config: &ProviderConfig, audio: Vec<u8>) -> Result<String, String> {
     let key = secret_for("deepgram")?;
-    let value = response_json("Deepgram", client()?.post(endpoint(&config.endpoint, "/listen"))
-        .query(&[("model", config.stt_model.as_str()), ("smart_format", "true"), ("language", "multi")])
-        .header("Authorization", format!("Token {key}"))
-        .header("Content-Type", "audio/wav")
-        .body(audio).send().await.map_err(|e| format!("Cannot reach Deepgram: {e}"))?).await?;
-    value.pointer("/results/channels/0/alternatives/0/transcript").and_then(Value::as_str)
-        .map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
+    let value = response_json(
+        "Deepgram",
+        client()?
+            .post(endpoint(&config.endpoint, "/listen"))
+            .query(&[
+                ("model", config.stt_model.as_str()),
+                ("smart_format", "true"),
+                ("language", "multi"),
+            ])
+            .header("Authorization", format!("Token {key}"))
+            .header("Content-Type", "audio/wav")
+            .body(audio)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach Deepgram: {e}"))?,
+    )
+    .await?;
+    value
+        .pointer("/results/channels/0/alternatives/0/transcript")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
         .ok_or_else(|| "Deepgram returned an empty transcript".into())
 }
 
 async fn transcribe_elevenlabs(config: &ProviderConfig, audio: Vec<u8>) -> Result<String, String> {
     let key = secret_for("elevenlabs")?;
-    let part = Part::bytes(audio).file_name("recording.wav").mime_str("audio/wav")
+    let part = Part::bytes(audio)
+        .file_name("recording.wav")
+        .mime_str("audio/wav")
         .map_err(|e| format!("Cannot prepare audio upload: {e}"))?;
-    let form = Form::new().part("file", part).text("model_id", config.stt_model.clone());
-    let value = response_json("ElevenLabs", client()?.post(endpoint(&config.endpoint, "/speech-to-text"))
-        .header("xi-api-key", key).multipart(form).send().await.map_err(|e| format!("Cannot reach ElevenLabs: {e}"))?).await?;
+    let form = Form::new()
+        .part("file", part)
+        .text("model_id", config.stt_model.clone());
+    let value = response_json(
+        "ElevenLabs",
+        client()?
+            .post(endpoint(&config.endpoint, "/speech-to-text"))
+            .header("xi-api-key", key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach ElevenLabs: {e}"))?,
+    )
+    .await?;
     json_text(&value, &["text"], "ElevenLabs")
 }
 
 async fn transcribe_assemblyai(config: &ProviderConfig, audio: Vec<u8>) -> Result<String, String> {
     let key = secret_for("assemblyai")?;
     let client = client()?;
-    let uploaded = response_json("AssemblyAI", client.post(endpoint(&config.endpoint, "/upload"))
-        .header("Authorization", &key).header("Content-Type", "application/octet-stream").body(audio).send().await
-        .map_err(|e| format!("Cannot upload audio to AssemblyAI: {e}"))?).await?;
-    let upload_url = uploaded.get("upload_url").and_then(Value::as_str).ok_or_else(|| "AssemblyAI did not return an upload URL".to_string())?;
+    let uploaded = response_json(
+        "AssemblyAI",
+        client
+            .post(endpoint(&config.endpoint, "/upload"))
+            .header("Authorization", &key)
+            .header("Content-Type", "application/octet-stream")
+            .body(audio)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot upload audio to AssemblyAI: {e}"))?,
+    )
+    .await?;
+    let upload_url = uploaded
+        .get("upload_url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "AssemblyAI did not return an upload URL".to_string())?;
     let mut speech_models = vec![config.stt_model.as_str()];
     if config.stt_model != "universal-2" {
         speech_models.push("universal-2");
     }
-    let submitted = response_json("AssemblyAI", client.post(endpoint(&config.endpoint, "/transcript"))
-        .header("Authorization", &key).json(&json!({
-            "audio_url": upload_url,
-            "speech_models": speech_models,
-            "language_detection": true,
-            "language_detection_options": {
-                "expected_languages": ["ru", "en"],
-                "fallback_language": "auto",
-                "code_switching": true
-            }
-        })).send().await
-        .map_err(|e| format!("Cannot start AssemblyAI transcription: {e}"))?).await?;
-    let id = submitted.get("id").and_then(Value::as_str).ok_or_else(|| "AssemblyAI did not return a transcript ID".to_string())?.to_string();
+    let submitted = response_json(
+        "AssemblyAI",
+        client
+            .post(endpoint(&config.endpoint, "/transcript"))
+            .header("Authorization", &key)
+            .json(&json!({
+                "audio_url": upload_url,
+                "speech_models": speech_models,
+                "language_detection": true,
+                "language_detection_options": {
+                    "expected_languages": ["ru", "en"],
+                    "fallback_language": "auto",
+                    "code_switching": true
+                }
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Cannot start AssemblyAI transcription: {e}"))?,
+    )
+    .await?;
+    let id = submitted
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "AssemblyAI did not return a transcript ID".to_string())?
+        .to_string();
     for _ in 0..300 {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let value = response_json("AssemblyAI", client.get(endpoint(&config.endpoint, &format!("/transcript/{id}")))
-            .header("Authorization", &key).send().await.map_err(|e| format!("Cannot poll AssemblyAI: {e}"))?).await?;
+        let value = response_json(
+            "AssemblyAI",
+            client
+                .get(endpoint(&config.endpoint, &format!("/transcript/{id}")))
+                .header("Authorization", &key)
+                .send()
+                .await
+                .map_err(|e| format!("Cannot poll AssemblyAI: {e}"))?,
+        )
+        .await?;
         match value.get("status").and_then(Value::as_str) {
             Some("completed") => return json_text(&value, &["text"], "AssemblyAI"),
-            Some("error") => return Err(format!("AssemblyAI transcription failed: {}", value.get("error").and_then(Value::as_str).unwrap_or("unknown error"))),
+            Some("error") => {
+                return Err(format!(
+                    "AssemblyAI transcription failed: {}",
+                    value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error")
+                ))
+            }
             Some("queued" | "processing") => {}
             Some(status) => return Err(format!("AssemblyAI returned an unknown status: {status}")),
             None => return Err("AssemblyAI response did not contain a status".into()),
@@ -437,8 +662,20 @@ async fn transcribe_gemini(config: &ProviderConfig, audio: Vec<u8>) -> Result<St
             { "inline_data": { "mime_type": "audio/wav", "data": data } }
         ] }]
     });
-    let value = response_json("Gemini", client()?.post(endpoint(&config.endpoint, &format!("/models/{}:generateContent", config.stt_model)))
-        .header("x-goog-api-key", key).json(&body).send().await.map_err(|e| format!("Cannot reach Gemini: {e}"))?).await?;
+    let value = response_json(
+        "Gemini",
+        client()?
+            .post(endpoint(
+                &config.endpoint,
+                &format!("/models/{}:generateContent", config.stt_model),
+            ))
+            .header("x-goog-api-key", key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach Gemini: {e}"))?,
+    )
+    .await?;
     gemini_text(&value)
 }
 
@@ -448,9 +685,14 @@ pub async fn postprocess(settings: &ProviderSettings, transcript: &str) -> Resul
         return Ok(transcript.to_string());
     }
     let config = selected_config(settings, provider)?;
-    let input = format!("{}\n\nTranscript:\n{}", settings.postprocess_prompt, transcript);
+    let input = format!(
+        "{}\n\nTranscript:\n{}",
+        settings.postprocess_prompt, transcript
+    );
     match provider {
-        "openai" | "groq" | "openrouter" | "xai" | "lmstudio" => postprocess_openai_compatible(provider, config, &input).await,
+        "openai" | "groq" | "openrouter" | "xai" | "lmstudio" => {
+            postprocess_openai_compatible(provider, config, &input).await
+        }
         "anthropic" => postprocess_anthropic(config, &input).await,
         "gemini" => postprocess_gemini(config, &input).await,
         "bedrock" => postprocess_bedrock(config, &input).await,
@@ -459,7 +701,11 @@ pub async fn postprocess(settings: &ProviderSettings, transcript: &str) -> Resul
     }
 }
 
-async fn postprocess_openai_compatible(provider: &str, config: &ProviderConfig, input: &str) -> Result<String, String> {
+async fn postprocess_openai_compatible(
+    provider: &str,
+    config: &ProviderConfig,
+    input: &str,
+) -> Result<String, String> {
     let client = client()?;
     let mut request = client.post(endpoint(&config.endpoint, "/chat/completions"))
         .json(&json!({ "model": config.text_model, "messages": [{ "role": "user", "content": input }], "temperature": 0.1 }));
@@ -469,9 +715,20 @@ async fn postprocess_openai_compatible(provider: &str, config: &ProviderConfig, 
     if provider == "openrouter" {
         request = request.header("X-OpenRouter-Title", "HotYap");
     }
-    let value = response_json(provider, request.send().await.map_err(|e| format!("Cannot reach {provider}: {e}"))?).await?;
-    value.pointer("/choices/0/message/content").and_then(Value::as_str)
-        .map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
+    let value = response_json(
+        provider,
+        request
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach {provider}: {e}"))?,
+    )
+    .await?;
+    value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
         .ok_or_else(|| format!("{provider} returned empty text"))
 }
 
@@ -485,18 +742,38 @@ async fn postprocess_anthropic(config: &ProviderConfig, input: &str) -> Result<S
 }
 
 async fn postprocess_gemini(config: &ProviderConfig, input: &str) -> Result<String, String> {
-    let value = response_json("Gemini", client()?.post(endpoint(&config.endpoint, &format!("/models/{}:generateContent", config.text_model)))
-        .header("x-goog-api-key", secret_for("gemini")?)
-        .json(&json!({ "contents": [{ "parts": [{ "text": input }] }] }))
-        .send().await.map_err(|e| format!("Cannot reach Gemini: {e}"))?).await?;
+    let value = response_json(
+        "Gemini",
+        client()?
+            .post(endpoint(
+                &config.endpoint,
+                &format!("/models/{}:generateContent", config.text_model),
+            ))
+            .header("x-goog-api-key", secret_for("gemini")?)
+            .json(&json!({ "contents": [{ "parts": [{ "text": input }] }] }))
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach Gemini: {e}"))?,
+    )
+    .await?;
     gemini_text(&value)
 }
 
 async fn postprocess_bedrock(config: &ProviderConfig, input: &str) -> Result<String, String> {
-    let value = response_json("Amazon Bedrock", client()?.post(endpoint(&config.endpoint, &format!("/model/{}/converse", config.text_model)))
-        .bearer_auth(secret_for("bedrock")?)
-        .json(&json!({ "messages": [{ "role": "user", "content": [{ "text": input }] }] }))
-        .send().await.map_err(|e| format!("Cannot reach Amazon Bedrock: {e}"))?).await?;
+    let value = response_json(
+        "Amazon Bedrock",
+        client()?
+            .post(endpoint(
+                &config.endpoint,
+                &format!("/model/{}/converse", config.text_model),
+            ))
+            .bearer_auth(secret_for("bedrock")?)
+            .json(&json!({ "messages": [{ "role": "user", "content": [{ "text": input }] }] }))
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach Amazon Bedrock: {e}"))?,
+    )
+    .await?;
     joined_text_parts(value.pointer("/output/message/content"), "Amazon Bedrock")
 }
 
@@ -507,7 +784,14 @@ async fn postprocess_ollama(config: &ProviderConfig, input: &str) -> Result<Stri
     if config.api_key_set || env_secret("ollama").is_some() {
         request = request.bearer_auth(secret_for("ollama")?);
     }
-    let value = response_json("Ollama", request.send().await.map_err(|e| format!("Cannot reach Ollama: {e}"))?).await?;
+    let value = response_json(
+        "Ollama",
+        request
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach Ollama: {e}"))?,
+    )
+    .await?;
     json_text(&value, &["message", "content"], "Ollama")
 }
 
@@ -516,9 +800,16 @@ fn gemini_text(value: &Value) -> Result<String, String> {
 }
 
 fn joined_text_parts(parts: Option<&Value>, provider: &str) -> Result<String, String> {
-    let text = parts.and_then(Value::as_array).map(|parts| {
-        parts.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("")
-    }).unwrap_or_default();
+    let text = parts
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
     let text = text.trim();
     if text.is_empty() {
         Err(format!("{provider} returned empty text"))
@@ -534,9 +825,22 @@ mod tests {
     #[test]
     fn defaults_cover_every_requested_provider() {
         let settings = ProviderSettings::default();
-        assert!(PROVIDER_IDS.iter().all(|provider| settings.providers.contains_key(*provider)));
+        assert!(PROVIDER_IDS
+            .iter()
+            .all(|provider| settings.providers.contains_key(*provider)));
         assert_eq!(settings.stt_provider, "local");
         assert_eq!(settings.text_provider, "none");
+        assert!(!settings.history_enabled);
+    }
+
+    #[test]
+    fn old_settings_files_keep_history_disabled() {
+        let mut value = serde_json::to_value(ProviderSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("history_enabled");
+
+        let settings: ProviderSettings = serde_json::from_value(value).unwrap();
+
+        assert!(!settings.history_enabled);
     }
 
     #[test]
@@ -544,12 +848,17 @@ mod tests {
         assert!(validate_endpoint("ollama", "http://127.0.0.1:11434").is_ok());
         assert!(validate_endpoint("lmstudio", "http://localhost:1234/v1").is_ok());
         assert!(validate_endpoint("openai", "http://example.com/v1").is_err());
+        assert!(validate_endpoint("openai", "file:///v1").is_err());
+        assert!(validate_endpoint("openai", "https://key@example.com/v1").is_err());
+        assert!(validate_endpoint("openai", "https://example.com/v1?token=secret").is_err());
     }
 
     #[test]
     fn cloud_stt_requires_key_metadata() {
-        let mut settings = ProviderSettings::default();
-        settings.stt_provider = "openai".into();
+        let mut settings = ProviderSettings {
+            stt_provider: "openai".into(),
+            ..ProviderSettings::default()
+        };
         assert!(!stt_ready(&settings, true));
         settings.providers.get_mut("openai").unwrap().api_key_set = true;
         assert!(stt_ready(&settings, false));
@@ -558,6 +867,9 @@ mod tests {
     #[test]
     fn joins_text_blocks_from_provider_responses() {
         let parts = json!([{ "text": "Hello, " }, { "text": "world." }]);
-        assert_eq!(joined_text_parts(Some(&parts), "test").unwrap(), "Hello, world.");
+        assert_eq!(
+            joined_text_parts(Some(&parts), "test").unwrap(),
+            "Hello, world."
+        );
     }
 }

@@ -7,9 +7,9 @@ Website: [mr-lexus.github.io/hot-yap](https://mr-lexus.github.io/hot-yap/)
 
 Alpha builds: [GitHub Releases](https://github.com/mr-lexus/hot-yap/releases)
 
-Tauri v2 desktop app for speech-to-text dictation in Russian with embedded English technical terms. It uses local faster-whisper + CTranslate2 by default and can optionally use a configured cloud provider. The result is copied to the system clipboard; the app never simulates keyboard input — you paste it yourself.
+Tauri v2 desktop app for speech-to-text dictation in Russian with embedded English technical terms. Local inference uses faster-whisper + CTranslate2 on Windows, Linux, and Intel macOS, or MLX + Metal on Apple Silicon. A configured cloud provider is optional. The result is copied to the system clipboard; the app never simulates keyboard input — you paste it yourself.
 
-The current release channel is **`0.1.0-alpha.1`**. Linux is the primary tested platform; Windows and macOS packages are automated but should be treated as early alpha builds.
+The current release channel is **`0.1.0-alpha.16`**. Windows, Linux, Intel macOS, and Apple Silicon macOS packages are built automatically; installers remain early alpha builds while hardware coverage expands.
 
 ## What it does
 
@@ -17,9 +17,10 @@ The current release channel is **`0.1.0-alpha.1`**. Linux is the primary tested 
 hold Ctrl+Shift+Space → RECORD → release → TRANSCRIBE LOCALLY → COPY TO CLIPBOARD → DONE
 ```
 
-- Models are downloaded from Hugging Face inside the app (one-time). The built-in catalog contains the verified `Russian First` Int8/Float16 and Int16 variants, `Code Switch` Int8/Float16, and the general `RuEn` line from `tiny` through `large-v3`.
-- The Models panel keeps model management in a modal. Each model is stored in its own directory and can be downloaded, loaded, or deleted independently. `Update catalog` performs a manual Hugging Face search, accepts only repositories with a compatible CTranslate2 `model.bin`, persists the result locally, and never downloads a discovered model automatically.
-- Local mode has no cloud, telemetry, or history. Audio leaves the device only when an external speech-to-text provider is explicitly selected.
+- Models are downloaded from Hugging Face inside the app (one-time). The built-in catalog contains the verified `Russian First` Int8/Float16 and Int16 variants, `Code Switch` Int8/Float16, and the general `RuEn` line from `tiny` through `large-v3`. Apple Silicon builds also offer MLX Small, Large v3 Turbo and full Large v3 models. The RuEn catalog also includes the general multilingual Large v3 Turbo for CUDA/CPU. See [the model audit](docs/MODEL_AUDIT.md) for sources and selection rationale.
+- The Models panel keeps model management in a modal. Each model is stored in its own directory and can be downloaded, loaded, or deleted independently. `Update catalog` performs a manual Hugging Face search, accepts only public repositories with a complete CTranslate2 layout and confirmed Russian/English language tokens, persists the result locally, and never downloads a discovered model automatically.
+- Local mode has no cloud or telemetry. Optional text-only transcription history is disabled by default and stays on the device; audio leaves the device only when an external speech-to-text provider is explicitly selected.
+- The file transcriber accepts common audio and video containers by picker or drag-and-drop, extracts audio locally, and runs the same local or cloud pipeline as live dictation. Long recordings are split into bounded chunks and can be cancelled; the editable result can be copied or saved as UTF-8 text.
 - Russian speech + embedded English terms (e.g. `useEffect`, `git rebase`, `TypeScript`, `Docker`) are transcribed as-is and copied as UTF-8 text.
 
 ## Architecture
@@ -29,22 +30,25 @@ Tauri v2 / React / TS / Vite (UI + state)
         │  Tauri commands + events
         ▼
 Rust backend (cpal recording → WAV via hound,
+             media validation + chunking,
              clipboard-manager plugin,
              global-shortcut plugin)
         │
-        ├─ local: JSONL → persistent Python worker → faster-whisper
+        ├─ local: JSONL → persistent Python worker → CTranslate2 or MLX
         └─ external: HTTPS → selected speech-to-text provider
                             → optional text post-processing provider
 ```
 
 - The Python worker is a **single persistent child process** — the model loads once and is reused.
 - `worker.py` speaks JSON Lines on stdout only; all diagnostics go to stderr.
-- Commands: `status`, `download_model`, `load_model`, `transcribe`, `shutdown`.
-- Device auto-detection: CUDA (`int8_float16`) if available, otherwise CPU (`int8`) — the UI shows `Engine: CUDA` / `Engine: CPU`.
+- Commands: `status`, `download_model`, `load_model`, `prepare_media`, `transcribe`, `shutdown`.
+- PyAV ships the FFmpeg libraries used to decode imported audio and video, so users do not need to install an external `ffmpeg` executable.
+- Device auto-detection: MLX models use Metal (`float16`) on Apple Silicon; CTranslate2 models use CUDA when available and otherwise CPU (`int8`). The UI reports the device actually used.
 
 ## Development requirements
 
-- Linux (X11 recommended; hotkey needs X11 — Wayland will lack the global shortcut but the UI button still works)
+- macOS 14+ for Apple Silicon MLX development, with native arm64 Python and Xcode Command Line Tools
+- Intel macOS with Xcode Command Line Tools, or Linux (X11 recommended; Wayland can lack the global shortcut while the UI button still works)
 - Node.js 22.12+, pnpm 11.18
 - Rust (rustup)
 - Python 3.10+
@@ -65,7 +69,9 @@ pnpm tauri dev
 Model location (app data dir, not in the repo):
 
 ```
-~/.local/share/com.voxshift.app/models/ru-en-codeswitch/ct2_int8_float16/
+Linux:  ~/.local/share/com.voxshift.app/models/
+macOS:  ~/Library/Application Support/com.voxshift.app/models/
+Windows: %APPDATA%\com.voxshift.app\models\
 ```
 
 The legacy application identifier is intentionally preserved so existing downloaded models are not lost after the HotYap rename.
@@ -98,9 +104,9 @@ When the main window is not focused, the global push-to-talk shortcut opens a sm
 
 If the shortcut is already taken by another app, HotYap keeps running, shows a warning in the UI, and the UI button still works.
 
-## GPU / CPU
+## GPU / CPU / Apple Silicon
 
-- CUDA is used automatically when CTranslate2 sees a CUDA device: `device=cuda`, `compute_type=int8_float16`.
+- CUDA is used automatically when CTranslate2 sees a CUDA device: `device=cuda`, preferring `float16` with lower-precision fallbacks.
 - If the CUDA load fails (missing runtime libs `nvidia-cublas-cu12` / `nvidia-cudnn-cu12`, old driver, OOM), the app **falls back to CPU** (`int8`) and reports it in the UI. No crash.
 - Note: modern CTranslate2 CUDA may require CUDA 12 + cuDNN 9. We do not modify your GPU driver. Optional Python deps for CUDA (add to `backend/requirements.txt` if you want them bundled):
 
@@ -109,13 +115,20 @@ nvidia-cublas-cu12
 nvidia-cudnn-cu12
 ```
 
+### macOS
+
+- Apple Silicon builds (M1 and newer) require macOS 14 or later and include an MLX/Metal worker. `Apple Silicon · Small` is the recommended everyday model; `Apple Silicon · Large v3 Turbo` trades memory and latency for higher quality.
+- The MLX models are shown only in native `aarch64-apple-darwin` builds. Rosetta launches and Intel Macs use the CTranslate2 catalog instead.
+- Intel Macs run CTranslate2 on CPU. CTranslate2 has no Metal backend, and current Intel Mac Radeon GPUs are therefore not used for local inference.
+- CPU models remain available on Apple Silicon as a compatibility fallback. For accelerated inference, select an Apple Silicon model and leave Device on Auto or choose Metal.
+
 ## Known limitations
 
 - Recording uses the system default input device (no selector in this MVP).
 - No auto-paste by design — the app only writes the system clipboard.
 - Whisper-large-v3-turbo on a CPU without AVX2 is slow (see Troubleshooting); on CUDA or a modern AVX2 CPU, a short dictation takes seconds.
 - Alpha installers are currently unsigned. Windows SmartScreen and macOS Gatekeeper warnings are expected.
-- Linux packages are the primary tested output. Windows and macOS need broader hardware and permission testing.
+- Linux, Windows, and both macOS architectures are built in the release matrix. Microphone permissions, global shortcuts, and real-model performance still need coverage across more physical Mac hardware.
 
 ## Troubleshooting
 
@@ -153,6 +166,20 @@ xclip -selection clipboard -o
 
 ## Build
 
+Regression checks (no downloaded speech model or API keys required):
+
+```bash
+pnpm test
+python3 -m unittest discover -s backend/tests -p 'test_*.py' -v
+cargo test --locked --manifest-path src-tauri/Cargo.toml
+```
+
+The worker protocol tests use a deterministic inference stub. Hardware recording,
+CUDA/Metal inference, and real cloud providers still require integration testing. The
+Apple Silicon release job additionally imports MLX and runs an MLX CPU operation inside
+the frozen worker. This validates the native arm64 package without depending on GPU access
+in a hosted runner; the application performs a real Metal operation when an MLX model loads.
+
 ```bash
 pnpm build          # desktop frontend
 pnpm site:build     # static bilingual landing -> dist-pages/
@@ -172,4 +199,4 @@ See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the complete Pages, release, 
 ## Privacy
 
 - Temporary WAV files are deleted after each transcription (including on errors).
-- No history or telemetry. In local mode, network access is used only for model catalog/download operations. In cloud mode, the temporary recording is sent only to the selected speech-to-text provider; the resulting text is also sent to the selected post-processing provider when that optional stage is enabled.
+- No telemetry. Text-only transcription history is opt-in, disabled by default, and stored in the app data directory; audio is never retained in history. Turning history off stops new entries without deleting existing ones, which remain available for explicit deletion. In local mode, imported media and microphone recordings stay on the device. In cloud mode, HotYap extracts imported audio locally, sends bounded audio chunks only to the selected speech-to-text provider, and sends the resulting text to the selected post-processing provider only when that optional stage is enabled. Temporary normalized audio and chunks are deleted after success, cancellation, and errors.

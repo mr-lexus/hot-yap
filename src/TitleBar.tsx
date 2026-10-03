@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createSubscriptionScope } from "./subscriptions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import BrandLogo from "./BrandLogo";
@@ -65,21 +66,22 @@ export default function TitleBar({ theme, status, onModelSwitch }: TitleBarProps
   const hasOptions = localModels.length > 0 || cloudProviders.length > 0;
 
   useEffect(() => {
-    let unlisten: Array<() => void> = [];
+    const subscriptions = createSubscriptionScope(console.error);
     let disposed = false;
 
     (async () => {
       try {
         const window = getCurrentWindow();
         if (disposed) return;
-        setMaximized(await window.isMaximized());
-        setFocused(await window.isFocused());
+        const [isMaximized, isFocused] = await Promise.all([window.isMaximized(), window.isFocused()]);
+        if (disposed) return;
+        setMaximized(isMaximized);
+        setFocused(isFocused);
 
-        const un1 = await window.onResized(() => {
-          void window.isMaximized().then(setMaximized).catch(() => {});
-        });
-        const un2 = await window.onFocusChanged(({ payload }) => setFocused(payload));
-        unlisten = [un1, un2];
+        await subscriptions.add(window.onResized(() => {
+          void window.isMaximized().then((value) => { if (!disposed) setMaximized(value); }).catch(() => {});
+        }));
+        await subscriptions.add(window.onFocusChanged(({ payload }) => setFocused(payload)));
       } catch (e) {
         console.error("titlebar window state failed:", e);
       }
@@ -87,7 +89,7 @@ export default function TitleBar({ theme, status, onModelSwitch }: TitleBarProps
 
     return () => {
       disposed = true;
-      unlisten.forEach((un) => un());
+      subscriptions.dispose();
     };
   }, []);
 
@@ -113,7 +115,9 @@ export default function TitleBar({ theme, status, onModelSwitch }: TitleBarProps
     if (!hasOptions) return;
     if (!modelMenuOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setMenuPos({ top: rect.bottom + 2, left: rect.left });
+      const menuWidth = Math.min(260, window.innerWidth - 16);
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
+      setMenuPos({ top: rect.bottom + 2, left });
     }
     setModelMenuOpen((prev) => !prev);
   };

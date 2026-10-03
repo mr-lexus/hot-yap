@@ -1,2 +1,7 @@
 faster-whisper>=1.1.0
+av>=14,<19
 huggingface_hub>=0.24.0
+# Keep the VAD runtime compatible with onnxruntime 1.18.x in release builds.
+numpy<2
+mlx==0.32.3; sys_platform == "darwin" and platform_machine == "arm64"
+mlx-whisper==0.4.3; sys_platform == "darwin" and platform_machine == "arm64"

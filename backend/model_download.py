@@ -1,14 +1,17 @@
 """Model download / status helpers for the HotYap worker.
 
 The Rust side owns the model catalog (id, repo_id, allow_patterns, optional
-CT2 subdir). The worker only deals with directories under the app model root:
+backend, and optional CT2 subdir). The worker only deals with directories under
+the app model root:
 
     <root>/<model_id>/model.bin            (repos with files at root)
     <root>/<model_id>/ct2_int8_float16/    (repos with a CT2 subfolder)
+    <root>/<model_id>/weights.safetensors  (MLX models on Apple Silicon)
 """
 
 import shutil
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 MIN_MODEL_BYTES = 1_000_000
@@ -23,18 +26,38 @@ def _model_path(root, model_id: str, ct2_subdir):
     return (p / ct2_subdir) if ct2_subdir else p
 
 
-def is_downloaded(root, model_id: str, ct2_subdir=None) -> bool:
-    if not root:
-        return False
-    p = _model_path(root, model_id, ct2_subdir) / "model.bin"
+def _large_file(path: Path) -> bool:
     try:
-        return p.exists() and p.stat().st_size > MIN_MODEL_BYTES
+        return path.is_file() and path.stat().st_size > MIN_MODEL_BYTES
     except OSError:
         return False
 
 
-def model_status(root, model_id: str, ct2_subdir=None) -> str:
-    return "downloaded" if is_downloaded(root, model_id, ct2_subdir) else "missing"
+def is_downloaded(root, model_id: str, ct2_subdir=None, backend="ctranslate2") -> bool:
+    if not root:
+        return False
+    model_path = _model_path(root, model_id, ct2_subdir)
+    if backend == "ctranslate2":
+        return (
+            _large_file(model_path / "model.bin")
+            and all((model_path / name).is_file() for name in ("config.json", "tokenizer.json"))
+            and any((model_path / name).is_file() for name in ("vocabulary.json", "vocabulary.txt"))
+        )
+    if backend == "mlx":
+        if not (model_path / "config.json").is_file():
+            return False
+        candidates = [model_path / "weights.npz", model_path / "weights.safetensors"]
+        candidates.append(model_path / "model.safetensors")
+        return any(_large_file(path) for path in candidates)
+    return False
+
+
+def model_status(root, model_id: str, ct2_subdir=None, backend="ctranslate2") -> str:
+    return (
+        "downloaded"
+        if is_downloaded(root, model_id, ct2_subdir, backend)
+        else "missing"
+    )
 
 
 def disk_bytes(root, model_id: str, ct2_subdir=None) -> int:
@@ -54,7 +77,7 @@ def delete_model(root, model_id: str) -> None:
         log(f"deleted model '{model_id}' ({p})")
 
 
-def _expected_total(root, repo_id: str, model_id: str, ct2_subdir, revision=None):
+def _expected_total(repo_id: str, ct2_subdir, revision=None, allow_patterns=None):
     try:
         from huggingface_hub import HfApi
 
@@ -66,16 +89,32 @@ def _expected_total(root, repo_id: str, model_id: str, ct2_subdir, revision=None
             recursive=True,
             revision=revision,
         )
-        total = sum(getattr(f, "size", None) or 0 for f in files)
+        total = sum(
+            getattr(f, "size", None) or 0
+            for f in files
+            if not allow_patterns
+            or any(fnmatch(getattr(f, "path", ""), pattern) for pattern in allow_patterns)
+        )
         return total or None
     except Exception as e:
         log(f"could not fetch expected download size from HF API: {e}")
         return None
 
 
-def download_model(root, model_id: str, repo_id: str, allow_patterns, ct2_subdir, revision=None, on_progress=None) -> None:
+def download_model(
+    root,
+    model_id: str,
+    repo_id: str,
+    allow_patterns,
+    ct2_subdir,
+    revision=None,
+    on_progress=None,
+    backend="ctranslate2",
+) -> None:
     root = Path(root)
-    if is_downloaded(root, model_id, ct2_subdir):
+    if backend not in ("ctranslate2", "mlx"):
+        raise ValueError(f"unsupported model backend: {backend}")
+    if is_downloaded(root, model_id, ct2_subdir, backend):
         log(f"model '{model_id}' already downloaded, skipping")
         if on_progress:
             on_progress(1.0)
@@ -83,7 +122,7 @@ def download_model(root, model_id: str, repo_id: str, allow_patterns, ct2_subdir
 
     model_root = root / model_id
     model_root.mkdir(parents=True, exist_ok=True)
-    total = _expected_total(root, repo_id, model_id, ct2_subdir, revision)
+    total = _expected_total(repo_id, ct2_subdir, revision, allow_patterns)
 
     import tqdm
     from huggingface_hub import snapshot_download
@@ -116,7 +155,7 @@ def download_model(root, model_id: str, repo_id: str, allow_patterns, ct2_subdir
         max_workers=8,
     )
 
-    if not is_downloaded(root, model_id, ct2_subdir):
+    if not is_downloaded(root, model_id, ct2_subdir, backend):
         raise RuntimeError(
             f"download finished but model files are missing/incomplete for '{model_id}'"
         )

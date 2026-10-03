@@ -5,24 +5,13 @@ once (on `load_model`), then reused for every `transcribe` call.
 """
 
 import os
+import platform
 import re
 import sys
 import time
 import traceback
 import wave
 from pathlib import Path
-
-# The release worker no longer bundles PyAV/FFmpeg: the Rust side resamples the
-# recording to 16 kHz and we decode the WAV here with the stdlib `wave` module.
-# faster_whisper still does `import av` at import time, so install a no-op
-# stand-in when the real PyAV is absent. `faster_whisper.audio.decode_audio` is
-# never called because we always pass a numpy array to `WhisperModel.transcribe`.
-try:
-    import av  # noqa: F401
-except Exception:
-    import types
-
-    sys.modules.setdefault("av", types.ModuleType("av"))
 
 SUB = "ct2_int8_float16"
 
@@ -233,6 +222,36 @@ def system_memory():
             facts["physical_free"] = values.get("MemAvailable")
         except (OSError, ValueError):
             return {}
+    elif sys.platform == "darwin":
+        import subprocess
+
+        try:
+            total = int(
+                subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"], text=True, timeout=3
+                ).strip()
+            )
+            output = subprocess.check_output(["vm_stat"], text=True, timeout=3)
+            page_size_match = re.search(r"page size of (\d+) bytes", output)
+            page_size = int(page_size_match.group(1)) if page_size_match else 4096
+            pages = {}
+            for line in output.splitlines()[1:]:
+                key, separator, value = line.partition(":")
+                if separator:
+                    pages[key] = int(value.strip().rstrip("."))
+            available_pages = sum(
+                pages.get(key, 0)
+                for key in (
+                    "Pages free",
+                    "Pages inactive",
+                    "Pages speculative",
+                    "Pages purgeable",
+                )
+            )
+            facts["physical_total"] = total
+            facts["physical_free"] = available_pages * page_size
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return {}
     return {k: v for k, v in facts.items() if v}
 
 
@@ -326,7 +345,7 @@ def _compose_failure_message(attempts, facts: dict) -> str:
                 "Enlarge the virtual memory (page file): Settings > System > About > Advanced system settings "
                 "> Performance settings > Advanced > Virtual memory, or set it to automatic, then restart the PC."
             )
-        else:
+        elif sys.platform == "linux":
             advice.append("Add swap space (or enlarge the swap file) and try again.")
         if model_bytes and facts.get("commit_free") is not None:
             # Rough sizing rule: the weights need their own footprint (plus
@@ -351,14 +370,122 @@ def _compose_failure_message(attempts, facts: dict) -> str:
     return "\n".join(lines)
 
 
-def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, device="auto"):
-    """Load the model according to the requested device preference ('auto', 'cuda', 'cpu').
+def is_apple_silicon(platform_name=None, machine=None) -> bool:
+    platform_name = platform_name or sys.platform
+    machine = (machine or platform.machine()).lower()
+    return platform_name == "darwin" and machine in ("arm64", "aarch64")
+
+
+def _mlx_weight_bytes(path: Path) -> int:
+    try:
+        return sum(
+            item.stat().st_size
+            for item in path.iterdir()
+            if item.is_file()
+            and (item.name == "weights.npz" or item.suffix == ".safetensors")
+        )
+    except OSError:
+        return 0
+
+
+def _clear_mlx_model_cache() -> None:
+    try:
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+
+        ModelHolder.model = None
+        ModelHolder.model_path = None
+        clear_cache = getattr(mx, "clear_cache", None)
+        if clear_cache is not None:
+            clear_cache()
+    except Exception as exc:
+        log(f"could not clear the MLX model cache: {exc}")
+
+
+def release_model(state: dict) -> None:
+    """Release the active backend before loading another large model."""
+    previous_backend = state.get("backend")
+    state["model"] = None
+    state["model_path"] = None
+    state["backend"] = None
+    state["device"] = None
+    state["compute_type"] = None
+
+    if previous_backend == "mlx":
+        _clear_mlx_model_cache()
+
+    import gc
+
+    gc.collect()
+
+
+def _load_mlx_model(state: dict, path: Path, device: str):
+    if not is_apple_silicon():
+        raise ModelLoadError(
+            "MLX models require an Apple Silicon Mac (M1 or newer) running macOS 14 or later.",
+            "mlx_unavailable",
+        )
+    req_device = (device or "auto").lower()
+    if req_device not in ("auto", "metal"):
+        raise ModelLoadError(
+            "This Apple Silicon model runs through MLX and Metal. Set Device to Auto or Metal, "
+            "or choose a CTranslate2 model for CPU inference.",
+            "invalid_device",
+        )
+    if not (path / "config.json").is_file() or _mlx_weight_bytes(path) <= 0:
+        raise FileNotFoundError(
+            f"MLX model files not found at {path}. Download the model first."
+        )
+
+    release_model(state)
+    try:
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+
+        model = ModelHolder.get_model(str(path), mx.float16)
+        # Force a tiny computation so missing Metal/runtime components fail now,
+        # while the UI can still report a model-load error.
+        mx.eval(mx.array([1.0]) + 1.0)
+    except Exception as exc:
+        # ModelHolder caches globally. A load can populate it before a later
+        # Metal operation fails, so clear it even though state was not yet
+        # marked as an MLX backend.
+        _clear_mlx_model_cache()
+        raise ModelLoadError(
+            "The MLX/Metal model could not be loaded. Apple Silicon builds require macOS 14 "
+            f"or later. Details: {exc}",
+            "mlx_unavailable",
+            {"model_bytes": _mlx_weight_bytes(path)},
+        ) from exc
+
+    state["model"] = model
+    state["model_path"] = str(path)
+    state["backend"] = "mlx"
+    state["device"] = "metal"
+    state["compute_type"] = "float16"
+    return "metal", "float16"
+
+
+def load_model(
+    state: dict,
+    model_dir: str,
+    ct2_subdir=None,
+    models_root=None,
+    device="auto",
+    backend="ctranslate2",
+):
+    """Load a CTranslate2 or MLX model for the requested device.
 
     Returns (device, compute_type).
     Raises ModelLoadError with a user-facing diagnosis when everything fails;
     the exception carries `.kind` and `.details` (see ModelLoadError).
     """
     path = _model_path(model_dir, ct2_subdir)
+    if backend == "mlx":
+        return _load_mlx_model(state, path, device)
+    if backend != "ctranslate2":
+        raise ModelLoadError(f"Unsupported model backend: {backend}", "unsupported_backend")
+
     model_bin = path / "model.bin"
     if not model_bin.exists():
         raise FileNotFoundError(
@@ -366,12 +493,24 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
         )
     model_bytes = model_bin.stat().st_size
 
+    req_device = (device or "auto").lower()
+    if req_device == "metal":
+        raise ModelLoadError(
+            "Metal is available only for Apple Silicon MLX models. Choose an Apple Silicon "
+            "model, or set Device to Auto or CPU for this CTranslate2 model.",
+            "invalid_device",
+        )
+    if req_device not in ("auto", "cuda", "cpu"):
+        raise ModelLoadError(
+            f"Unsupported compute device: {req_device}", "invalid_device"
+        )
+
+    release_model(state)
     _prepare_cuda_runtime(models_root)
 
     import ctranslate2
 
     t0 = time.monotonic()
-    req_device = (device or "auto").lower()
     attempts = []  # (stage, compute_type, exception), in try order
 
     if req_device in ("auto", "cuda"):
@@ -402,6 +541,8 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
                     log(f"Attempting to load model on CUDA ({c_type})...")
                     m = _load_faster_whisper(path, device="cuda", compute_type=c_type)
                     state["model"] = m
+                    state["model_path"] = str(path)
+                    state["backend"] = "ctranslate2"
                     state["device"] = "cuda"
                     state["compute_type"] = c_type
                     log(f"model loaded on CUDA ({c_type}) in {time.monotonic()-t0:.1f}s")
@@ -431,6 +572,8 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
     try:
         m = _load_faster_whisper(path, device="cpu", compute_type="int8")
         state["model"] = m
+        state["model_path"] = str(path)
+        state["backend"] = "ctranslate2"
         state["device"] = "cpu"
         state["compute_type"] = "int8"
         log(f"model loaded on CPU in {time.monotonic()-t0:.1f}s")
@@ -447,7 +590,25 @@ def load_model(state: dict, model_dir: str, ct2_subdir=None, models_root=None, d
 def _load_faster_whisper(path: Path, device: str, compute_type: str):
     from faster_whisper import WhisperModel
 
-    return WhisperModel(str(path), device=device, compute_type=compute_type)
+    kwargs = {}
+    if sys.platform == "darwin" and device == "cpu":
+        kwargs["cpu_threads"] = _macos_physical_cores()
+    return WhisperModel(str(path), device=device, compute_type=compute_type, **kwargs)
+
+
+def _macos_physical_cores() -> int:
+    """Use physical cores on macOS; CT2's zero default can oversubscribe them."""
+    import subprocess
+
+    try:
+        count = int(
+            subprocess.check_output(
+                ["sysctl", "-n", "hw.physicalcpu"], text=True, timeout=3
+            ).strip()
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        count = max(1, (os.cpu_count() or 2) // 2)
+    return max(1, count)
 
 
 def audio_duration(audio_path: str) -> float:
@@ -486,6 +647,39 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
     text_parts = []
 
     audio = _decode_wav_16k(audio_path)
+
+    if state.get("backend") == "mlx":
+        if on_cancel and on_cancel():
+            return {"text": "", "inference_s": 0.0, "audio_s": 0.0, "rtf": 0.0}
+        try:
+            import mlx_whisper
+
+            result = mlx_whisper.transcribe(
+                audio,
+                path_or_hf_repo=state["model_path"],
+                language="ru",
+                task="transcribe",
+                beam_size=1,
+                condition_on_previous_text=False,
+                initial_prompt=INITIAL_PROMPT,
+                verbose=None,
+            )
+        except Exception as e:
+            log(f"MLX transcription failed:\n{traceback.format_exc()}")
+            raise RuntimeError(f"Transcription failed on Metal: {e}") from e
+        if on_progress:
+            on_progress(1.0)
+        wall = time.monotonic() - t0
+        audio_s = len(audio) / 16000.0
+        text = fix_latin_terms(re.sub(r"\s+", " ", result.get("text", "")).strip())
+        rtf = wall / audio_s if audio_s > 0 else 0.0
+        log(f"transcribe (MLX): audio={audio_s:.1f}s wall={wall:.2f}s rtf={rtf:.2f}")
+        return {
+            "text": text,
+            "inference_s": round(wall, 2),
+            "audio_s": round(audio_s, 2),
+            "rtf": round(rtf, 3),
+        }
 
     try:
         segments, info = model.transcribe(

@@ -3,6 +3,7 @@ export type EngineStatus = "stopped" | "loading" | "ready" | "error" | "not_inst
 export type Phase = "idle" | "recording" | "transcribing";
 
 export type ModelTier = "light" | "medium" | "heavy";
+export type ModelBackend = "ctranslate2" | "mlx";
 
 export interface ModelInfo {
   id: string;
@@ -12,6 +13,7 @@ export interface ModelInfo {
   format: string;
   size_mb: number;
   repo_id: string;
+  backend: ModelBackend;
   ct2_subdir?: string;
   allow_patterns?: string[];
   source_url: string;
@@ -70,6 +72,7 @@ export interface StatusReport {
   cuda_runtime: CudaRuntimeReport;
   worker_install: WorkerInstallReport;
   cuda_supported: boolean;
+  metal_supported: boolean;
   provider_settings: ProviderSettings;
 }
 
@@ -84,8 +87,34 @@ export interface ProviderSettings {
   stt_provider: string;
   text_provider: string;
   postprocess_prompt: string;
+  history_enabled: boolean;
   local_device: string;
   providers: Record<string, ProviderConfig>;
+}
+
+export interface HistoryEntry {
+  id: string;
+  text: string;
+  created_at: number;
+  favorite: boolean;
+  provider: string;
+  model: string;
+  source_name?: string | null;
+}
+
+export interface MediaFileInfo {
+  name: string;
+  extension: string;
+  size_bytes: number;
+  is_video: boolean;
+}
+
+export interface MediaTranscriptionResult {
+  text: string;
+  file_name: string;
+  duration: number;
+  has_video: boolean;
+  warning: string | null;
 }
 
 export const MODEL_LABEL: Record<ModelStatus, string> = {

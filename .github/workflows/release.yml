@@ -36,7 +36,7 @@ jobs:
             target: x86_64-apple-darwin
             bundles: dmg
             label: macOS Intel
-          - platform: macos-14
+          - platform: macos-15
             target: aarch64-apple-darwin
             bundles: dmg
             label: macOS Apple Silicon
@@ -72,6 +72,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Set Apple Silicon deployment target
+        if: matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> "$GITHUB_ENV"
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
@@ -98,18 +103,24 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          extra_collect=()
+          if [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
+            extra_collect+=(--collect-all mlx --collect-all mlx_whisper)
+          fi
           python -m PyInstaller \
             --noconfirm --clean --onefile \
             --name hotyap-worker \
             --paths backend \
             --hidden-import inference \
+            --hidden-import media \
             --hidden-import model_download \
-            --exclude-module av \
+            --collect-all av \
             --collect-all faster_whisper \
             --collect-all ctranslate2 \
             --collect-all tokenizers \
             --collect-all huggingface_hub \
             --collect-all onnxruntime \
+            "${extra_collect[@]}" \
             --distpath build/worker \
             --workpath build/pyinstaller \
             --specpath build \
@@ -127,8 +138,9 @@ jobs:
             --name hotyap-worker `
             --paths backend `
             --hidden-import inference `
+            --hidden-import media `
             --hidden-import model_download `
-            --exclude-module av `
+            --collect-all av `
             --collect-all faster_whisper `
             --collect-all ctranslate2 `
             --collect-all tokenizers `
@@ -144,12 +156,44 @@ jobs:
       - name: Smoke-test bundled worker (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           mkdir -p build/worker-smoke
-          printf '%s\n' \
-            '{"id":1,"command":"status","model_dir":"build/worker-smoke","catalog":[]}' \
-            '{"id":2,"command":"shutdown"}' \
-            | "src-tauri/binaries/hotyap-worker-${{ matrix.target }}"
+          {
+            printf '%s\n' '{"id":1,"command":"status","model_dir":"build/worker-smoke","catalog":[]}'
+            if [[ "$TARGET" == "aarch64-apple-darwin" ]]; then
+              printf '%s\n' '{"id":2,"command":"verify_mlx_runtime","device":"cpu"}'
+              printf '%s\n' '{"id":3,"command":"shutdown"}'
+            else
+              printf '%s\n' '{"id":2,"command":"shutdown"}'
+            fi
+          } | "src-tauri/binaries/hotyap-worker-${{ matrix.target }}" | tee build/worker-smoke/output.jsonl
+          python - "build/worker-smoke/output.jsonl" "$TARGET" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          replies = {}
+          for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+              try:
+                  payload = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if "id" in payload:
+                  replies[payload["id"]] = payload
+          if not replies.get(1, {}).get("ok"):
+              raise SystemExit(f"worker status smoke test failed: {replies}")
+          if sys.argv[2] == "aarch64-apple-darwin":
+              mlx = replies.get(2, {})
+              if not mlx.get("ok") or not mlx.get("available"):
+                  raise SystemExit(f"MLX runtime smoke test failed: {mlx}")
+              if mlx.get("device") != "cpu":
+                  raise SystemExit(f"MLX runtime used the wrong smoke-test device: {mlx}")
+          shutdown_id = 3 if sys.argv[2] == "aarch64-apple-darwin" else 2
+          if replies.get(shutdown_id, {}).get("event") != "shutdown_ack":
+              raise SystemExit(f"worker shutdown smoke test failed: {replies}")
+          PY
 
       - name: Smoke-test bundled worker (Windows)
         if: runner.os == 'Windows'
@@ -225,12 +269,12 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: |
-            First public alpha of HotYap.
+            HotYap alpha: local RU/EN dictation, optional text-only history, audio/video file transcription, and native MLX/Metal models for Apple Silicon.
 
             The local transcription engine is downloaded automatically on first use, and speech models are downloaded separately. These builds are currently unsigned; operating-system warnings are expected.
 
             Linux: DEB, RPM, AppImage. Windows: MSI, NSIS. macOS: DMG for Intel and Apple Silicon.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: true
           args: --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 

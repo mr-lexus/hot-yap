@@ -4,13 +4,15 @@ import { useTranslation } from "react-i18next";
 import type { Accent, IconPreference } from "./appearance";
 import { ACCENTS, ICON_PREFERENCES } from "./appearance";
 import Icon from "./Icons";
-import type { ProviderConfig, ProviderSettings } from "./types";
+import type { ModelBackend, ProviderConfig, ProviderSettings } from "./types";
 
 interface SettingsModalProps {
   open: boolean;
   accent: Accent;
   iconPreference: IconPreference;
   cudaSupported: boolean;
+  metalSupported: boolean;
+  currentModelBackend: ModelBackend | null;
   onAccentChange: (accent: Accent) => void;
   onIconPreferenceChange: (preference: IconPreference) => void;
   onClose: () => void;
@@ -40,7 +42,7 @@ const OPTIONAL_KEY = new Set(["ollama", "lmstudio"]);
 
 export const providerName = (id: string) => PROVIDER_NAMES[id] ?? id;
 
-export default function SettingsModal({ open, accent, iconPreference, cudaSupported, onAccentChange, onIconPreferenceChange, onClose, onSaved }: SettingsModalProps) {
+export default function SettingsModal({ open, accent, iconPreference, cudaSupported, metalSupported, currentModelBackend, onAccentChange, onIconPreferenceChange, onClose, onSaved }: SettingsModalProps) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -275,8 +277,9 @@ export default function SettingsModal({ open, accent, iconPreference, cudaSuppor
                         }}
                       >
                         <option value="auto">{t("settings.deviceAuto")}</option>
-                        {cudaSupported && <option value="cuda">{t("settings.deviceCuda")}</option>}
-                        <option value="cpu">{t("settings.deviceCpu")}</option>
+                        {currentModelBackend !== "mlx" && cudaSupported && <option value="cuda">{t("settings.deviceCuda")}</option>}
+                        {currentModelBackend !== "ctranslate2" && metalSupported && <option value="metal">{t("settings.deviceMetal")}</option>}
+                        {currentModelBackend !== "mlx" && <option value="cpu">{t("settings.deviceCpu")}</option>}
                       </select>
                     </label>
                   )}
@@ -313,6 +316,31 @@ export default function SettingsModal({ open, accent, iconPreference, cudaSuppor
                   </>
                 )}
               </>
+            )}
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-heading">
+              <span className="panel-icon"><Icon name="history" size={15} /></span>
+              <div><h3>{t("settings.history")}</h3><p>{t("settings.historyHint")}</p></div>
+            </div>
+            {settings && (
+              <label className={`history-setting ${settings.history_enabled ? "active" : ""}`}>
+                <span className="history-setting-copy">
+                  <strong>{t("settings.saveHistory")}</strong>
+                  <small>{t("settings.saveHistoryHint")}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.history_enabled}
+                  disabled={saving}
+                  onChange={(event) => {
+                    setSettings({ ...settings, history_enabled: event.target.checked });
+                    setSaved(false);
+                  }}
+                />
+                <span className="history-switch" aria-hidden="true"><span /></span>
+              </label>
             )}
           </section>
 

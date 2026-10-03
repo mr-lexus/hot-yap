@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { type CudaRuntimeReport, type ProviderSettings, type StatusReport } from "./types";
@@ -11,59 +11,12 @@ import TitleBar from "./TitleBar";
 import SpectrumAnalyzer from "./SpectrumAnalyzer";
 import TranscriptionProgress from "./TranscriptionProgress";
 import SettingsModal, { providerName } from "./SettingsModal";
+import HistoryModal from "./HistoryModal";
+import FileTranscriber from "./FileTranscriber";
 import { applyAppearance, applyIconPreference, savedAccent, savedIconPreference, savedTheme, type Accent, type IconPreference, type Theme } from "./appearance";
+import { createSubscriptionScope } from "./subscriptions";
+import { DEFAULT_STATUS } from "./status";
 import "./app.css";
-
-const DEFAULT_STATUS: StatusReport = {
-  model_status: "not_downloaded",
-  model_error: null,
-  engine_status: "stopped",
-  engine_error: null,
-  device: null,
-  compute_type: null,
-  phase: "idle",
-  mic_name: null,
-  hotkey: "Ctrl+Shift+Space",
-  hotkey_registered: false,
-  hotkey_warning: null,
-  last_text: null,
-  last_copied: false,
-  worker_alive: true,
-  last_error: null,
-  last_warning: null,
-  models: [],
-  current_model_id: null,
-  model_progress: null,
-  transcribe_progress: null,
-  transcribe_elapsed: 0,
-  audio_level: 0,
-  audio_spectrum: [],
-  stt_provider: "local",
-  stt_model: "",
-  stt_ready: false,
-  text_provider: "none",
-  local_device: "auto",
-  cuda_runtime: {
-    checked: false,
-    gpu_available: false,
-    runtime_ok: true,
-    missing: [],
-    progress: null,
-    error: null,
-  },
-  worker_install: {
-    progress: null,
-    error: null,
-  },
-  cuda_supported: true,
-  provider_settings: {
-    stt_provider: "local",
-    text_provider: "none",
-    postprocess_prompt: "",
-    local_device: "auto",
-    providers: {},
-  },
-};
 
 function hotkeyParts(shortcut: string): string[] {
   return shortcut.split("+").filter(Boolean).map((part) => {
@@ -71,6 +24,13 @@ function hotkeyParts(shortcut: string): string[] {
     if (part.startsWith("Digit")) return part.slice(5);
     return part;
   });
+}
+
+function deviceLabel(device: string | null): string {
+  if (device === "cuda") return "CUDA";
+  if (device === "metal") return "Metal";
+  if (device === "cpu") return "CPU";
+  return device?.toUpperCase() ?? "";
 }
 
 function shortcutFromKeyEvent(event: ReactKeyboardEvent<HTMLButtonElement>): string | null {
@@ -96,10 +56,11 @@ export default function App() {
   const [releasingToTalk, setReleasingToTalk] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [fileTranscriberOpen, setFileTranscriberOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const [accent, setAccent] = useState<Accent>(savedAccent);
   const [iconPreference, setIconPreference] = useState<IconPreference>(savedIconPreference);
-  const listenersRef = useRef<UnlistenFn[]>([]);
   const holdingToTalkRef = useRef(false);
   const releaseCommandDoneRef = useRef(false);
   const statusRef = useRef(status);
@@ -118,14 +79,14 @@ export default function App() {
     void emit("hotyap:icon-preference", { preference: iconPreference });
 
     if (iconPreference !== "system") return;
-    let unlisten: UnlistenFn | undefined;
+    const subscriptions = createSubscriptionScope(console.error);
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const refreshIcon = () => void applyIconPreference("system").catch(() => {});
     media.addEventListener("change", refreshIcon);
-    void getCurrentWindow().onThemeChanged(refreshIcon).then((cleanup) => { unlisten = cleanup; });
+    void subscriptions.add(getCurrentWindow().onThemeChanged(refreshIcon));
     return () => {
       media.removeEventListener("change", refreshIcon);
-      unlisten?.();
+      subscriptions.dispose();
     };
   }, [iconPreference]);
 
@@ -149,70 +110,73 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const subscriptions = createSubscriptionScope((value) => setError(String(value)));
     (async () => {
+      await Promise.all([
+        subscriptions.add(listen<StatusReport>("vox:status", (event) => {
+          if (!cancelled) setStatus(event.payload);
+        })),
+        subscriptions.add(listen<{ fraction: number }>("vox:download-progress", (event) => {
+          setStatus((previous) => ({ ...previous, model_progress: event.payload.fraction }));
+        })),
+        subscriptions.add(listen<{ elapsed: number; fraction?: number }>("vox:transcribe-progress", (event) => {
+          setStatus((previous) => ({
+            ...previous,
+            transcribe_progress: event.payload.fraction ?? Math.min(1, event.payload.elapsed / 30),
+            transcribe_elapsed: Math.round(event.payload.elapsed),
+          }));
+        })),
+        subscriptions.add(listen<{ level: number; spectrum: number[] }>("vox:audio-meter", (event) => {
+          setStatus((previous) => ({
+            ...previous,
+            audio_level: event.payload.level,
+            audio_spectrum: event.payload.spectrum,
+          }));
+        })),
+        subscriptions.add(listen<{ fraction: number }>("vox:cuda-runtime-progress", (event) => {
+          setStatus((previous) => ({
+            ...previous,
+            cuda_runtime: {
+              ...previous.cuda_runtime,
+              progress: event.payload.fraction,
+              error: null,
+            },
+          }));
+        })),
+        subscriptions.add(listen<{ fraction: number }>("vox:worker-download-progress", (event) => {
+          setStatus((previous) => ({
+            ...previous,
+            worker_install: {
+              ...previous.worker_install,
+              progress: event.payload.fraction,
+              error: null,
+            },
+          }));
+        })),
+      ]);
+      if (cancelled) return;
       try {
-        const s = await invoke<StatusReport>("get_status");
-        if (!cancelled) setStatus(s);
-      } catch (e) {
-        if (!cancelled) setError(String(e));
+        const current = await invoke<StatusReport>("get_status");
+        if (!cancelled) setStatus(current);
+      } catch (value) {
+        if (!cancelled) setError(String(value));
       }
       if (cancelled) return;
-      const un1 = await listen<StatusReport>("vox:status", (e) => {
-        setStatus(e.payload);
-      });
-       const un2 = await listen<{ fraction: number }>("vox:download-progress", (e) => {
-         setStatus(prev => ({ ...prev, model_progress: e.payload.fraction }));
-       });
-       const un3 = await listen<{ elapsed: number; fraction?: number }>("vox:transcribe-progress", (e) => {
-         setStatus(prev => ({
-           ...prev,
-           transcribe_progress: e.payload.fraction ?? Math.min(1, e.payload.elapsed / 30),
-           transcribe_elapsed: Math.round(e.payload.elapsed),
-         }));
-       });
-       const un4 = await listen<{ level: number; spectrum: number[] }>("vox:audio-meter", (e) => {
-         setStatus(prev => ({
-           ...prev,
-           audio_level: e.payload.level,
-           audio_spectrum: e.payload.spectrum,
-         }));
-       });
-        const un5 = await listen<{ fraction: number }>("vox:cuda-runtime-progress", (e) => {
-          setStatus(prev => ({
-            ...prev,
-            cuda_runtime: {
-              ...prev.cuda_runtime,
-              progress: e.payload.fraction,
-              error: null,
-            },
-          }));
-        });
-        const un6 = await listen<{ fraction: number }>("vox:worker-download-progress", (e) => {
-          setStatus(prev => ({
-            ...prev,
-            worker_install: {
-              ...prev.worker_install,
-              progress: e.payload.fraction,
-              error: null,
-            },
-          }));
-        });
-        listenersRef.current = [un1, un2, un3, un4, un5, un6];
-       // Ask the backend whether the CUDA runtime is usable; the result
-       // decides whether the "download CUDA runtime" banner is shown.
-       invoke<CudaRuntimeReport>("check_cuda_runtime")
-         .then((report) => setStatus(prev => ({ ...prev, cuda_runtime: report })))
-         .catch((e) => console.error("check_cuda_runtime failed:", e));
+      // Ask the backend whether the CUDA runtime is usable; the result
+      // decides whether the "download CUDA runtime" banner is shown.
+      invoke<CudaRuntimeReport>("check_cuda_runtime")
+        .then((report) => { if (!cancelled) setStatus(prev => ({ ...prev, cuda_runtime: report })); })
+        .catch((e) => console.error("check_cuda_runtime failed:", e));
     })();
     const poll = setInterval(() => {
       invoke<StatusReport>("get_status")
-        .then((s) => setStatus(s))
+        .then((s) => { if (!cancelled) setStatus(s); })
         .catch(() => {});
     }, 5000);
     return () => {
       cancelled = true;
       clearInterval(poll);
-      listenersRef.current.forEach((un) => un());
+      subscriptions.dispose();
     };
   }, []);
 
@@ -236,9 +200,20 @@ export default function App() {
   const currentModel = status.models.find(m => m.id === status.current_model_id);
   const cloudTranscription = status.stt_provider !== "local";
   const activeTranscriber = cloudTranscription
-    ? `${providerName(status.stt_provider)}${status.stt_model ? ` В· ${status.stt_model}` : ""}`
+    ? `${providerName(status.stt_provider)}${status.stt_model ? ` · ${status.stt_model}` : ""}`
     : currentModel?.name ?? t("model.none");
   const displayedEngineStatus = status.stt_ready ? "ready" : cloudTranscription ? "stopped" : status.engine_status;
+  const engineStateLabel = status.stt_ready
+    ? t("engineStatus.ready")
+    : cloudTranscription
+      ? t("provider.setupRequired")
+      : t(`engineStatus.${status.engine_status}`);
+  const engineBackendLabel = cloudTranscription
+    ? providerName(status.stt_provider)
+    : deviceLabel(status.device);
+  const engineAccessibleLabel = engineBackendLabel
+    ? `${engineStateLabel} · ${engineBackendLabel}`
+    : engineStateLabel;
   const hasDownloadedModel = status.models.some((model) => model.downloaded);
   const modelProgress = status.model_progress == null ? null : Math.round(status.model_progress * 100);
   const modelActivity = status.model_status === "downloading"
@@ -370,23 +345,31 @@ export default function App() {
             <button className={i18n.language.startsWith("en") ? "active" : ""} onClick={() => void i18n.changeLanguage("en")}>EN</button>
             <button className={i18n.language.startsWith("ru") ? "active" : ""} onClick={() => void i18n.changeLanguage("ru")}>RU</button>
           </div>
-          <div className={`engine-pill ${displayedEngineStatus}`}>
+          <div className={`engine-pill ${displayedEngineStatus}`} role="status" aria-label={engineAccessibleLabel} title={engineAccessibleLabel}>
             <span className="topbar-status-dot" />
-            <span>{status.stt_ready ? t("engineStatus.ready") : cloudTranscription ? t("provider.setupRequired") : t(`engineStatus.${status.engine_status}`)}</span>
-            {(cloudTranscription || status.device) && <strong>{cloudTranscription ? providerName(status.stt_provider) : status.device?.toUpperCase()}</strong>}
+            <span>{engineStateLabel}</span>
+            {engineBackendLabel && <strong>{engineBackendLabel}</strong>}
           </div>
           <button
-            className="theme-toggle"
+            className="theme-toggle topbar-action"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             title={t(`theme.${theme === "dark" ? "switchToLight" : "switchToDark"}`)}
             aria-label={t(`theme.${theme === "dark" ? "switchToLight" : "switchToDark"}`)}
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
-            {t(`theme.${theme === "dark" ? "light" : "dark"}`)}
+            <span className="topbar-action-label">{t(`theme.${theme === "dark" ? "light" : "dark"}`)}</span>
           </button>
-          <button className="theme-toggle" onClick={() => setSettingsOpen(true)}>
+          <button className="theme-toggle topbar-action" title={t("history.button")} aria-label={t("history.button")} onClick={() => setHistoryOpen(true)}>
+            <Icon name="history" size={14} />
+            <span className="topbar-action-label">{t("history.button")}</span>
+          </button>
+          <button className="theme-toggle topbar-action" title={t("fileTranscriber.button")} aria-label={t("fileTranscriber.button")} disabled={busy || status.phase !== "idle"} onClick={() => setFileTranscriberOpen(true)}>
+            <Icon name="file" size={14} />
+            <span className="topbar-action-label">{t("fileTranscriber.button")}</span>
+          </button>
+          <button className="theme-toggle topbar-action" title={t("settings.button")} aria-label={t("settings.button")} onClick={() => setSettingsOpen(true)}>
             <Icon name="sliders" size={14} />
-            {t("settings.button")}
+            <span className="topbar-action-label">{t("settings.button")}</span>
           </button>
         </div>
       </header>
@@ -566,7 +549,7 @@ export default function App() {
               {cloudTranscription
                 ? activeTranscriber
                 : status.device
-                ? `${status.device === "cuda" ? "CUDA" : "CPU"}${status.compute_type ? ` В· ${status.compute_type}` : ""}`
+                ? `${deviceLabel(status.device)}${status.compute_type ? ` · ${status.compute_type}` : ""}`
                 : status.worker_alive ? t("engine.workerOnline") : t("engine.workerOffline")}
             </p>
             {!cloudTranscription && status.engine_status === "error" && status.engine_error && <p className="error-msg">{status.engine_error}</p>}
@@ -587,8 +570,12 @@ export default function App() {
                   }}
                 >
                   <option value="auto">{t("settings.deviceAuto")}</option>
-                  {status.cuda_supported && <option value="cuda">{t("settings.deviceCuda")}</option>}
-                  <option value="cpu">{t("settings.deviceCpu")}</option>
+                  {currentModel?.backend === "mlx"
+                    ? status.metal_supported && <option value="metal">{t("settings.deviceMetal")}</option>
+                    : <>
+                        {status.cuda_supported && <option value="cuda">{t("settings.deviceCuda")}</option>}
+                        <option value="cpu">{t("settings.deviceCpu")}</option>
+                      </>}
                 </select>
               </label>
             )}
@@ -627,7 +614,15 @@ export default function App() {
         </aside>
       </div>
 
-        <footer className="privacy">{cloudTranscription ? t("privacyCloud", { provider: providerName(status.stt_provider) }) : t("privacy")}</footer>
+        <footer className="privacy">
+          {status.provider_settings.history_enabled
+            ? cloudTranscription
+              ? t("privacyCloudHistory", { provider: providerName(status.stt_provider) })
+              : t("privacyHistory")
+            : cloudTranscription
+              ? t("privacyCloud", { provider: providerName(status.stt_provider) })
+              : t("privacy")}
+        </footer>
 
         <ModelManager
         open={modelManagerOpen}
@@ -643,11 +638,32 @@ export default function App() {
           }
         }}
       />
+        <FileTranscriber
+        open={fileTranscriberOpen}
+        status={status}
+        onClose={() => setFileTranscriberOpen(false)}
+        onConfigure={() => {
+          setFileTranscriberOpen(false);
+          if (status.stt_provider === "local") setModelManagerOpen(true);
+          else setSettingsOpen(true);
+        }}
+      />
+        <HistoryModal
+        open={historyOpen}
+        historyEnabled={status.provider_settings.history_enabled}
+        onClose={() => setHistoryOpen(false)}
+        onOpenSettings={() => {
+          setHistoryOpen(false);
+          setSettingsOpen(true);
+        }}
+      />
         <SettingsModal
         open={settingsOpen}
         accent={accent}
         iconPreference={iconPreference}
         cudaSupported={status.cuda_supported}
+        metalSupported={status.metal_supported}
+        currentModelBackend={currentModel?.backend ?? null}
         onAccentChange={setAccent}
         onIconPreferenceChange={setIconPreference}
         onClose={() => setSettingsOpen(false)}

@@ -5,6 +5,9 @@ use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+const MAX_RECORDING_SECONDS: usize = 30 * 60;
+const MAX_RECORDING_BUFFER_BYTES: usize = 256 * 1024 * 1024;
+
 /// Microphone recorder built on cpal.
 ///
 /// Samples are stored interleaved as i16 in memory while recording.
@@ -19,7 +22,6 @@ pub struct Recorder {
     error: Arc<Mutex<Option<String>>>,
     mic_name: String,
     level: Arc<AtomicUsize>,
-    level_stop: Arc<AtomicUsize>,
 }
 
 impl Recorder {
@@ -51,17 +53,21 @@ impl Recorder {
         let data = Arc::new(Mutex::new(Vec::<i16>::new()));
         let error = Arc::new(Mutex::new(None::<String>));
         let level = Arc::new(AtomicUsize::new(0));
-        let level_stop = Arc::new(AtomicUsize::new(0));
+        let duration_samples = (sample_rate as usize)
+            .saturating_mul(channels as usize)
+            .saturating_mul(MAX_RECORDING_SECONDS);
+        let memory_samples = MAX_RECORDING_BUFFER_BYTES / std::mem::size_of::<i16>();
+        let max_samples = duration_samples.min(memory_samples);
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => {
-                build_stream::<f32>(&device, config.config(), &data, &error, &level)?
+                build_stream::<f32>(&device, config.config(), &data, &error, &level, max_samples)?
             }
             cpal::SampleFormat::I16 => {
-                build_stream::<i16>(&device, config.config(), &data, &error, &level)?
+                build_stream::<i16>(&device, config.config(), &data, &error, &level, max_samples)?
             }
             cpal::SampleFormat::U16 => {
-                build_stream::<u16>(&device, config.config(), &data, &error, &level)?
+                build_stream::<u16>(&device, config.config(), &data, &error, &level, max_samples)?
             }
             other => {
                 return Err(format!(
@@ -84,16 +90,23 @@ impl Recorder {
             error,
             mic_name,
             level,
-            level_stop,
         })
     }
 
     /// Stop the stream and return (interleaved mono-mix i16 samples, sample rate, duration s).
     pub fn stop(self) -> Result<(Vec<i16>, u32, f64), String> {
-        self.level_stop.store(1, Ordering::SeqCst);
-        let mic_error = self.error.lock().unwrap().take();
+        // Stop callbacks before reading their error and sample buffers so a
+        // final callback cannot race with the snapshot below.
         drop(self.stream);
-        let mut buf = self.data.lock().unwrap();
+        let mic_error = self
+            .error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        let mut buf = self
+            .data
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let samples = std::mem::take(&mut *buf);
         let duration = self.started.elapsed().as_secs_f64();
         if let Some(e) = mic_error {
@@ -135,6 +148,7 @@ fn build_stream<T>(
     data: &Arc<Mutex<Vec<i16>>>,
     error: &Arc<Mutex<Option<String>>>,
     level: &Arc<AtomicUsize>,
+    max_samples: usize,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample,
@@ -142,16 +156,26 @@ where
 {
     let data = data.clone();
     let error = error.clone();
+    let callback_error = error.clone();
     let level = level.clone();
 
     device
         .build_input_stream(
             config,
             move |buf: &[T], _| {
-                let mut out = match data.lock() {
-                    Ok(g) => g,
-                    Err(_) => return,
-                };
+                let mut out = data.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                if out.len().saturating_add(buf.len()) > max_samples {
+                    if let Ok(mut error) = callback_error.lock() {
+                        error.get_or_insert_with(|| {
+                            format!(
+                                "Recording exceeded the {} minute or {} MB safety limit",
+                                MAX_RECORDING_SECONDS / 60,
+                                MAX_RECORDING_BUFFER_BYTES / (1024 * 1024)
+                            )
+                        });
+                    }
+                    return;
+                }
                 let mut sum_sq: i64 = 0;
                 let mut cnt: i64 = 0;
                 for s in buf {
@@ -167,7 +191,9 @@ where
             },
             move |e| {
                 log::error!("microphone stream error: {e}");
-                *error.lock().unwrap() = Some(e.to_string());
+                *error
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(e.to_string());
             },
             None,
         )
@@ -222,6 +248,9 @@ fn sinc_resample(input: &[f32], from_hz: u32, to_hz: u32) -> Option<Vec<f32>> {
     use rubato::{
         Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
     };
+    if input.len() < 256 {
+        return None;
+    }
     let params = SincInterpolationParameters {
         sinc_len: 256,
         f_cutoff: 0.95,
@@ -229,16 +258,26 @@ fn sinc_resample(input: &[f32], from_hz: u32, to_hz: u32) -> Option<Vec<f32>> {
         oversampling_factor: 256,
         window: WindowFunction::BlackmanHarris2,
     };
-    let mut resampler = SincFixedIn::<f32>::new(
-        to_hz as f64 / from_hz as f64,
-        2.0,
-        params,
-        input.len(),
-        1,
-    )
-    .ok()?;
-    let output = resampler.process(&[input.to_vec()], None).ok()?;
-    output.into_iter().next()
+    let mut resampler =
+        SincFixedIn::<f32>::new(to_hz as f64 / from_hz as f64, 2.0, params, 1024, 1).ok()?;
+    let expected_len = (input.len() as f64 * to_hz as f64 / from_hz as f64).round() as usize;
+    let mut output = Vec::with_capacity(expected_len + 1024);
+    for chunk in input.chunks(1024) {
+        let processed = resampler.process_partial(Some(&[chunk]), None).ok()?;
+        output.extend_from_slice(&processed[0]);
+    }
+    // A sinc filter holds the end of the recording in its internal buffer.
+    // Rubato 0.15's SincFixedIn starts at a negative filter index, so its
+    // lookahead delays output availability without inserting leading silence.
+    while output.len() < expected_len {
+        let processed = resampler.process_partial::<&[f32]>(None, None).ok()?;
+        if processed[0].is_empty() {
+            return None;
+        }
+        output.extend_from_slice(&processed[0]);
+    }
+    output.truncate(expected_len);
+    Some(output)
 }
 
 fn linear_resample(input: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
@@ -285,14 +324,30 @@ mod tests {
             "unexpected length {}",
             out.len()
         );
-        let crossings = out
-            .windows(2)
-            .filter(|w| (w[0] < 0) != (w[1] < 0))
-            .count();
+        let crossings = out.windows(2).filter(|w| (w[0] < 0) != (w[1] < 0)).count();
         let estimated_hz = crossings as f32 / 2.0;
         assert!(
             (estimated_hz - freq).abs() < 80.0,
             "estimated frequency {estimated_hz} Hz, expected {freq} Hz"
         );
+    }
+
+    #[test]
+    fn resample_preserves_duration_and_tail() {
+        for rate in [8_000, 44_100, 48_000, 96_000] {
+            let mut samples = vec![0; rate as usize];
+            let tail_start = samples.len() - (rate / 1000) as usize;
+            samples[tail_start..].fill(20_000);
+            let out = resample_to_16k(&samples, rate);
+            assert_eq!(out.len(), 16_000, "sample rate {rate}");
+            assert!(out[15_990] > 15_000, "recording tail lost at {rate} Hz");
+        }
+    }
+
+    #[test]
+    fn resample_handles_short_and_empty_recordings() {
+        assert!(resample_to_16k(&[], 48_000).is_empty());
+        let out = resample_to_16k(&[12_000; 48], 48_000);
+        assert_eq!(out, vec![12_000; 16]);
     }
 }

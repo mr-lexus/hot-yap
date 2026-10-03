@@ -5,14 +5,16 @@ protocol messages; all diagnostics go to stderr.
 
 Rust -> worker:
     {"id":1,"command":"status","model_dir":"...","catalog":[...]}
-    {"id":2,"command":"download_model","model_dir":"...","model_id":"...","repo_id":"...","allow_patterns":["..."],"ct2_subdir":"..."}
+    {"id":2,"command":"download_model","model_dir":"...","model_id":"...","repo_id":"...","backend":"ctranslate2","allow_patterns":["..."],"ct2_subdir":"..."}
     {"id":3,"command":"delete_model","model_dir":"...","model_id":"..."}
-    {"id":4,"command":"load_model","model_dir":"...","ct2_subdir":"..."}
+    {"id":4,"command":"load_model","model_dir":"...","backend":"ctranslate2","ct2_subdir":"..."}
     {"id":5,"command":"transcribe","audio_path":"..."}
     {"id":6,"command":"shutdown"}
     {"id":7,"command":"verify_cuda_runtime","models_root":"..."}
     {"id":8,"command":"download_cuda_runtime","models_root":"..."}
     {"id":9,"command":"verify_vad"}
+    {"id":10,"command":"verify_mlx_runtime"}
+    {"id":11,"command":"prepare_media","input_path":"...","output_path":"..."}
 
 worker -> Rust:
     {"event":"worker_ready","version":"..."}
@@ -28,10 +30,13 @@ worker -> Rust:
     {"id":8,"ok":true,"event":"cuda_runtime_progress","fraction":0.4}
     {"id":8,"ok":true,"event":"cuda_runtime_downloaded","path":"...","missing":[]}
     {"id":9,"ok":true,"event":"vad_verified","onnxruntime_version":"1.18.1","session_ok":true,"chunks":0}
+    {"id":10,"ok":true,"event":"mlx_runtime_verified","available":true,"mlx_version":"..."}
+    {"id":11,"ok":true,"event":"media_progress","fraction":0.5}
+    {"id":11,"ok":true,"event":"media_prepared","duration":120.0,"has_video":true}
     {"id":4,"ok":false,"error":"human readable error"}
 
-Commands are executed sequentially (single stdin loop) so the model is
-never used concurrently.
+Transcription runs in the background so the stdin loop can accept cancellation.
+Other model operations are rejected until that transcription finishes.
 """
 
 import json
@@ -42,28 +47,21 @@ import time
 import traceback
 from pathlib import Path
 
-# The release worker no longer bundles PyAV/FFmpeg (audio is resampled to
-# 16 kHz by the Rust side). faster_whisper still does `import av` at import
-# time, so install a no-op stand-in when the real PyAV is absent. It is never
-# used because we always pass a numpy array to `WhisperModel.transcribe`.
-try:
-    import av  # noqa: F401
-except Exception:
-    import types
-
-    sys.modules.setdefault("av", types.ModuleType("av"))
-
 VERSION = "0.1.0"
 
 state = {
     "model": None,
     "device": None,
     "compute_type": None,
+    "backend": None,
+    "model_path": None,
     "busy": False,
+    "transcribe_request_id": None,
     "cancel_event": threading.Event(),
 }
 
 HANDLERS = {}
+_stdout_lock = threading.Lock()
 
 
 def log(*a):
@@ -74,7 +72,8 @@ def reply(req_id, payload):
     msg = dict(payload)
     msg["id"] = req_id
     try:
-        print(json.dumps(msg, ensure_ascii=False), flush=True)
+        with _stdout_lock:
+            print(json.dumps(msg, ensure_ascii=False), flush=True)
     except Exception as e:
         # Never let a broken/closed stdout kill the worker loop; the Rust side
         # treats the pipe as dead anyway and will restart us.
@@ -100,6 +99,17 @@ def _emit_transcribe_progress(req_id, elapsed, fraction=None):
     reply(req_id, payload)
 
 
+def _emit_media_progress(req_id, fraction):
+    reply(
+        req_id,
+        {
+            "ok": True,
+            "event": "media_progress",
+            "fraction": round(min(1.0, max(0.0, fraction)), 4),
+        },
+    )
+
+
 def _catalog_slug(repo_id, variant):
     value = f"{repo_id}-{variant or 'root'}".lower()
     value = "".join(char if char.isalnum() else "-" for char in value)
@@ -115,9 +125,11 @@ def _catalog_family(repo_id):
     return "RuEn"
 
 
-def _discover_repo_variants(api, repo_id):
+def _discover_repo_variants(api, repo_id, revision):
     """Return only repositories that expose a faster-whisper-compatible CT2 layout."""
-    root = list(api.list_repo_tree(repo_id, recursive=False))
+    from huggingface_hub import hf_hub_download
+
+    root = list(api.list_repo_tree(repo_id, recursive=False, revision=revision))
     paths = {getattr(item, "path", "") for item in root}
     variants = []
 
@@ -138,14 +150,26 @@ def _discover_repo_variants(api, repo_id):
     result = []
     for subdir, patterns in variants:
         listing = root if subdir is None else list(
-            api.list_repo_tree(repo_id, path_in_repo=subdir, recursive=True)
+            api.list_repo_tree(repo_id, path_in_repo=subdir, recursive=True, revision=revision)
         )
-        files = [item for item in listing if getattr(item, "path", "").endswith("model.bin")]
-        if not files:
+        filenames = {Path(getattr(item, "path", "")).name for item in listing}
+        if not {"model.bin", "config.json", "tokenizer.json"}.issubset(filenames):
+            continue
+        if not {"vocabulary.json", "vocabulary.txt"}.intersection(filenames):
+            continue
+        config_path = hf_hub_download(repo_id, f"{subdir}/config.json" if subdir else "config.json", revision=revision)
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        # Whisper multilingual token IDs: English and Russian. A model.bin
+        # alone also matches English-only or unrelated CTranslate2 models.
+        if not _supports_ru_en(config):
             continue
         size = sum(getattr(item, "size", 0) or 0 for item in listing)
         result.append({"subdir": subdir, "patterns": patterns, "size": size})
     return result
+
+
+def _supports_ru_en(config):
+    return isinstance(config, dict) and {50259, 50263}.issubset(config.get("lang_ids") or [])
 
 
 @handle("discover_models")
@@ -182,14 +206,17 @@ def cmd_discover_models(req):
     discovered = []
     for repo_id, info in candidates.items():
         try:
-            variants = _discover_repo_variants(api, repo_id)
+            info = api.model_info(repo_id)
+            if not info.sha or info.gated or info.private:
+                continue
+            variants = _discover_repo_variants(api, repo_id, info.sha)
         except Exception as exc:
             log(f"skipping incompatible repository {repo_id}: {exc}")
             continue
         family = _catalog_family(repo_id)
         for variant in variants:
             subdir = variant["subdir"]
-            suffix = subdir or "int8"
+            suffix = subdir or "ct2"
             name = repo_id.rsplit("/", 1)[-1].replace("-", " ")
             format_label = {
                 "ct2_int8_float16": "CTranslate2 · Int8 / Float16",
@@ -197,7 +224,7 @@ def cmd_discover_models(req):
                 "ct2_int8": "CTranslate2 · Int8",
                 "ct2_float16": "CTranslate2 · Float16",
                 "ct2_float32": "CTranslate2 · Float32",
-                None: "CTranslate2 · Int8",
+                None: "CTranslate2 · Auto compute",
             }.get(subdir, "CTranslate2")
             discovered.append(
                 {
@@ -208,6 +235,7 @@ def cmd_discover_models(req):
                     "format": format_label,
                     "size_mb": max(1, round(variant["size"] / 1_000_000)),
                     "repo_id": repo_id,
+                    "backend": "ctranslate2",
                     "ct2_subdir": subdir,
                     "allow_patterns": variant["patterns"],
                     "source_url": f"https://huggingface.co/{repo_id}",
@@ -236,10 +264,12 @@ def cmd_status(req):
     for spec in catalog:
         mid = spec.get("id")
         sub = spec.get("ct2_subdir")
+        backend = spec.get("backend", "ctranslate2")
         models.append(
             {
                 "id": mid,
-                "downloaded": model_status(req.get("model_dir"), mid, sub) == "downloaded",
+                "downloaded": model_status(req.get("model_dir"), mid, sub, backend)
+                == "downloaded",
                 "size_bytes": disk_bytes(req.get("model_dir"), mid, sub),
             }
         )
@@ -266,6 +296,7 @@ def cmd_download(req):
         req.get("ct2_subdir"),
         req.get("revision"),
         on_progress=lambda f: _emit_progress(req_id, f),
+        backend=req.get("backend", "ctranslate2"),
     )
     return {"event": "model_downloaded"}
 
@@ -289,6 +320,7 @@ def cmd_load(req):
             req.get("ct2_subdir"),
             req.get("models_root"),
             device=req.get("device", "auto"),
+            backend=req.get("backend", "ctranslate2"),
         )
     except inference.ModelLoadError as e:
         # Already a full user-facing diagnosis: forward it verbatim together
@@ -302,23 +334,14 @@ def cmd_load(req):
 def cmd_transcribe(req):
     import inference
 
-    if state.get("busy"):
-        return {
-            "ok": False,
-            "error": (
-                "another transcription is still running; "
-                "wait for it to finish or restart the engine"
-            ),
-        }
     audio_path = req.get("audio_path")
     req_id = req.get("id")
     t0 = time.monotonic()
 
     # Long-running inference must not block the protocol loop: run it in a
     # daemon thread and pump progress events (and the timeout watchdog) from
-    # the main loop while it works.
+    # this request's supervisor thread while it works.
     result_box = {}
-    state["cancel_event"].clear()
 
     def _run():
         try:
@@ -334,7 +357,6 @@ def cmd_transcribe(req):
             log(f"transcribe failed:\n{traceback.format_exc()}")
             result_box["error"] = f"{type(e).__name__}: {e}"
 
-    state["busy"] = True
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
@@ -361,19 +383,33 @@ def cmd_transcribe(req):
             # clean recovery is restart_worker (kills the process).
             return {
                 "ok": False,
+                "error_kind": "transcription_timeout",
                 "error": (
                     f"transcription timed out after {int(timeout_s)}s — "
                     "the model may be stuck. Cancel and restart the engine."
                 ),
             }
 
-    state["busy"] = False
     if state["cancel_event"].is_set():
         state["cancel_event"].clear()
         return {"ok": False, "error": "Transcription cancelled"}
     if "result" in result_box:
         return {"event": "transcribed", **result_box["result"]}
     return {"ok": False, "error": result_box.get("error", "transcription failed")}
+
+
+@handle("prepare_media")
+def cmd_prepare_media(req):
+    import media
+
+    req_id = req.get("id")
+    result = media.decode_to_wav(
+        req.get("input_path"),
+        req.get("output_path"),
+        on_progress=lambda fraction: _emit_media_progress(req_id, fraction),
+        on_cancel=state["cancel_event"].is_set,
+    )
+    return {"event": "media_prepared", **result}
 
 
 CUDA_RUNTIME_VERSION = "12.4.5.8"
@@ -426,6 +462,61 @@ def cmd_verify_vad(req):
         return {
             "ok": False,
             "error": f"VAD verification failed: {type(e).__name__}: {e}",
+        }
+
+
+@handle("verify_mlx_runtime")
+def cmd_verify_mlx_runtime(req):
+    """Exercise the MLX runtime bundled for Apple Silicon releases.
+
+    Hosted CI runners do not guarantee Metal access, even when the host CPU is
+    Apple Silicon. The protocol therefore defaults to the MLX CPU backend for
+    a deterministic packaging smoke test. Passing ``device=metal`` is useful
+    for an explicit hardware check on a real Mac.
+    """
+    import platform
+
+    supported = sys.platform == "darwin" and platform.machine().lower() in (
+        "arm64",
+        "aarch64",
+    )
+    if not supported:
+        return {"event": "mlx_runtime_verified", "available": False}
+    try:
+        import mlx
+        import mlx.core as mx
+        import mlx_whisper
+
+        requested_device = str(req.get("device", "cpu")).lower()
+        if requested_device == "cpu":
+            smoke_device = mx.cpu
+            device_name = "cpu"
+        elif requested_device in ("metal", "gpu"):
+            smoke_device = mx.gpu
+            device_name = "metal"
+        else:
+            raise ValueError("device must be 'cpu' or 'metal'")
+
+        previous_device = mx.default_device()
+        try:
+            mx.set_default_device(smoke_device)
+            value = mx.array([1.0]) + 1.0
+            mx.eval(value)
+        finally:
+            mx.set_default_device(previous_device)
+        return {
+            "event": "mlx_runtime_verified",
+            "available": True,
+            "device": device_name,
+            "mlx_version": getattr(mlx, "__version__", "unknown"),
+            "mlx_whisper_version": getattr(mlx_whisper, "__version__", "unknown"),
+        }
+    except Exception as e:
+        log(f"MLX verification failed:\n{traceback.format_exc()}")
+        return {
+            "ok": False,
+            "available": False,
+            "error": f"MLX verification failed: {type(e).__name__}: {e}",
         }
 
 
@@ -648,19 +739,39 @@ def cmd_download_cuda_runtime(req):
     return {"event": "cuda_runtime_downloaded", "path": str(runtime_dir), "missing": []}
 
 
+def execute_request(req, handler):
+    """Run a command with the same error envelope in either execution context."""
+    try:
+        result = handler(req) or {}
+        if req.get("command") in ("transcribe", "prepare_media") and result.get("error_kind") != "transcription_timeout":
+            state["transcribe_request_id"] = None
+            state["busy"] = False
+        reply(req.get("id"), {"ok": True, **result})
+    except Exception as e:
+        log(f"command '{req.get('command')}' failed:\n{traceback.format_exc()}")
+        if req.get("command") in ("transcribe", "prepare_media"):
+            state["transcribe_request_id"] = None
+            state["busy"] = False
+        message = str(e)
+        if message != "Transcription cancelled":
+            message = f"{type(e).__name__}: {message}"
+        reply(req.get("id"), {"ok": False, "error": message})
+
+
 def main():
     # The protocol pipes must carry UTF-8 JSON: on a cp1251 system locale the
     # default stdout encoding would be windows-1251, which Rust (always
     # decoding UTF-8) would reject, and characters outside the codepage would
     # raise UnicodeEncodeError mid-protocol. errors="replace" additionally
     # guarantees a print can never take the process down.
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
     log(f"hotyap worker {VERSION} starting (pid={__import__('os').getpid()})")
     print(json.dumps({"event": "worker_ready", "version": VERSION}), flush=True)
+    cancelled_requests = set()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -669,6 +780,9 @@ def main():
             req = json.loads(line)
         except Exception as e:
             log(f"ignoring malformed request: {e}")
+            continue
+        if not isinstance(req, dict):
+            log("ignoring non-object request")
             continue
         rid = req.get("id")
         cmd = req.get("command")
@@ -690,19 +804,36 @@ def main():
             log("shutdown requested, exiting")
             break
         if cmd == "cancel_transcription":
-            state["cancel_event"].set()
+            target_id = req.get("request_id")
+            if target_id is None or target_id == state["transcribe_request_id"]:
+                state["cancel_event"].set()
+            else:
+                cancelled_requests.add(target_id)
             reply(rid, {"ok": True, "event": "cancel_ack"})
             continue
         handler = HANDLERS.get(cmd)
         if handler is None:
             reply(rid, {"ok": False, "error": f"unknown command: {cmd}"})
             continue
-        try:
-            result = handler(req) or {}
-            reply(rid, {"ok": True, **result})
-        except Exception as e:
-            log(f"command '{cmd}' failed:\n{traceback.format_exc()}")
-            reply(rid, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+        if cmd != "status" and state["busy"]:
+            reply(rid, {"ok": False, "error": "another transcription is still running"})
+            continue
+        if cmd in ("transcribe", "prepare_media"):
+            # Reset in the protocol thread, before accepting a possible cancel.
+            state["cancel_event"].clear()
+            if rid in cancelled_requests:
+                cancelled_requests.discard(rid)
+                reply(rid, {"ok": False, "error": "Transcription cancelled"})
+                continue
+            cancelled_requests.clear()
+            state["busy"] = True
+            state["transcribe_request_id"] = rid
+            transcription_thread = threading.Thread(
+                target=execute_request, args=(req, handler), daemon=True,
+            )
+            transcription_thread.start()
+        else:
+            execute_request(req, handler)
     log("worker exiting")
 
 

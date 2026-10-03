@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -10,6 +12,8 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::audio::{write_wav, Recorder};
 use crate::error::temp_wav_path;
+use crate::history::{HistoryEntry, HistoryStore};
+use crate::media::{self, MediaFileInfo};
 use crate::providers::{self, ProviderSettings};
 use crate::state::{emit_status, AppState, EngineStatus, ModelStatus, Phase};
 use crate::worker::{self, request, request_with_id};
@@ -20,12 +24,384 @@ fn set(app: &AppHandle, f: impl FnOnce(&mut crate::state::AppStateInner)) {
     f(&mut inner);
 }
 
+fn device_matches_backend(backend: &str, device: &str) -> bool {
+    match backend {
+        "mlx" => matches!(device, "auto" | "metal"),
+        "ctranslate2" => matches!(device, "auto" | "cpu" | "cuda"),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::device_matches_backend;
+
+    #[test]
+    fn compute_devices_match_model_backends() {
+        assert!(device_matches_backend("mlx", "auto"));
+        assert!(device_matches_backend("mlx", "metal"));
+        assert!(!device_matches_backend("mlx", "cpu"));
+        assert!(device_matches_backend("ctranslate2", "cpu"));
+        assert!(device_matches_backend("ctranslate2", "cuda"));
+        assert!(!device_matches_backend("ctranslate2", "metal"));
+        assert!(!device_matches_backend("unknown", "auto"));
+    }
+}
+
 #[tauri::command]
 pub async fn get_status(app: AppHandle) -> Result<crate::state::StatusReport, String> {
     log::debug!("command: get_status");
     let st = app.state::<AppState>();
     let report = st.lock().report(worker::is_alive(&app));
     Ok(report)
+}
+
+#[tauri::command]
+pub async fn get_history(app: AppHandle) -> Result<Vec<HistoryEntry>, String> {
+    Ok(app.state::<HistoryStore>().list())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_history_favorite(
+    app: AppHandle,
+    id: String,
+    favorite: bool,
+) -> Result<HistoryEntry, String> {
+    app.state::<HistoryStore>().set_favorite(&id, favorite)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn delete_history_entry(app: AppHandle, id: String) -> Result<(), String> {
+    app.state::<HistoryStore>().delete(&id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn clear_history(app: AppHandle, keep_favorites: bool) -> Result<usize, String> {
+    app.state::<HistoryStore>().clear(keep_favorites)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn copy_history_entry(app: AppHandle, id: String) -> Result<(), String> {
+    let entry = app
+        .state::<HistoryStore>()
+        .get(&id)
+        .ok_or_else(|| "History entry was not found".to_string())?;
+    app.clipboard()
+        .write_text(entry.text)
+        .map_err(|error| format!("Cannot copy history entry: {error}"))
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaTranscriptionResult {
+    pub text: String,
+    pub file_name: String,
+    pub duration: f64,
+    pub has_video: bool,
+    pub warning: Option<String>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn inspect_media_file(path: String) -> Result<MediaFileInfo, String> {
+    media::inspect(&path).map(|(_, info)| info)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn copy_transcript_text(app: AppHandle, text: String) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Err("Cannot copy an empty transcript".into());
+    }
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| format!("Cannot copy transcript: {error}"))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_transcript_file(path: String, text: String) -> Result<(), String> {
+    media::save_transcript(&path, &text)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn transcribe_media_file(
+    app: AppHandle,
+    path: String,
+) -> Result<MediaTranscriptionResult, String> {
+    let (source_path, file_info) = media::inspect(&path)?;
+    if !worker::is_alive(&app) {
+        return Err(
+            "The media decoder is unavailable. Restart or install the engine first.".into(),
+        );
+    }
+    if worker::is_busy(&app) {
+        return Err("The engine is busy with another operation".into());
+    }
+
+    let (settings, history_model, cancelled) = {
+        let state = app.state::<AppState>();
+        let mut inner = state.lock();
+        if inner.phase != Phase::Idle {
+            return Err("Another recording or transcription is already in progress".into());
+        }
+        if !providers::stt_ready(
+            &inner.provider_settings,
+            inner.engine_status == EngineStatus::Ready,
+        ) {
+            return Err(
+                "The selected transcription provider is not ready. Configure it first.".into(),
+            );
+        }
+        let settings = inner.provider_settings.clone();
+        let history_model = selected_transcription_model(&inner, &settings);
+        inner.phase = Phase::Transcribing;
+        inner.transcribe_cancel.store(false, Ordering::SeqCst);
+        inner.transcribe_progress = Some(0.0);
+        inner.transcribe_elapsed = 0.0;
+        inner.media_progress_range = None;
+        inner.last_error = None;
+        inner.last_warning = None;
+        (settings, history_model, inner.transcribe_cancel.clone())
+    };
+    if providers::provider_needs_key(&settings.stt_provider)
+        && !providers::secret_available(&settings.stt_provider)
+    {
+        set(&app, |inner| {
+            inner.phase = Phase::Idle;
+            inner.transcribe_request_id = None;
+            inner.media_progress_range = None;
+            inner.transcribe_progress = None;
+            inner.transcribe_elapsed = 0.0;
+        });
+        emit_status(&app);
+        return Err("The API key for the selected transcription provider is unavailable".into());
+    }
+
+    emit_status(&app);
+    let _ = app.emit(
+        "vox:file-progress",
+        json!({ "stage": "decoding", "fraction": 0.0 }),
+    );
+
+    let normalized_path = temp_wav_path();
+    let result = transcribe_prepared_media(
+        &app,
+        &source_path,
+        &normalized_path,
+        &file_info,
+        &settings,
+        &history_model,
+        &cancelled,
+    )
+    .await;
+
+    set(&app, |inner| {
+        inner.phase = Phase::Idle;
+        inner.transcribe_request_id = None;
+        inner.media_progress_range = None;
+        inner.transcribe_progress = None;
+        inner.transcribe_elapsed = 0.0;
+        match &result {
+            Ok(value) => {
+                inner.last_error = None;
+                inner.last_warning = value.warning.clone();
+            }
+            Err(error) if error == crate::cancellation::CANCELLED => {
+                inner.last_error = None;
+            }
+            Err(error) => {
+                inner.last_error = Some(error.clone());
+            }
+        }
+    });
+    emit_status(&app);
+    result
+}
+
+async fn transcribe_prepared_media(
+    app: &AppHandle,
+    source_path: &Path,
+    normalized_path: &Path,
+    file_info: &MediaFileInfo,
+    settings: &ProviderSettings,
+    history_model: &str,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<MediaTranscriptionResult, String> {
+    let mut temporary_files = vec![normalized_path.to_path_buf()];
+    let result = async {
+        let request_id = worker::next_request_id(&app.state::<Arc<worker::Worker>>());
+        set(app, |inner| inner.transcribe_request_id = Some(request_id));
+        let prepared = request_with_id(
+            app,
+            &app.state::<Arc<worker::Worker>>(),
+            json!({
+                "command": "prepare_media",
+                "input_path": source_path,
+                "output_path": normalized_path,
+            }),
+            Duration::from_secs(60 * 60),
+            Some(request_id),
+        )
+        .await;
+        set(app, |inner| inner.transcribe_request_id = None);
+        let prepared = prepared?;
+        check_cancelled(cancelled)?;
+
+        let duration = prepared
+            .payload
+            .get("duration")
+            .and_then(|value| value.as_f64())
+            .unwrap_or_default();
+        let has_video = prepared
+            .payload
+            .get("has_video")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(file_info.is_video);
+
+        let normalized_for_split = normalized_path.to_path_buf();
+        let chunks =
+            tauri::async_runtime::spawn_blocking(move || media::split_wav(&normalized_for_split))
+                .await
+                .map_err(|error| format!("Audio preparation task failed: {error}"))??;
+        for chunk in &chunks {
+            if chunk != normalized_path {
+                temporary_files.push(chunk.clone());
+            }
+        }
+        if chunks.is_empty() {
+            return Err("The selected file contains no decodable audio".into());
+        }
+
+        let mut text_parts = Vec::new();
+        let mut warnings = Vec::new();
+        let chunk_span = 0.74_f32 / chunks.len() as f32;
+        for (index, chunk) in chunks.iter().enumerate() {
+            check_cancelled(cancelled)?;
+            let base = 0.15 + chunk_span * index as f32;
+            let _ = app.emit(
+                "vox:file-progress",
+                json!({ "stage": "transcribing", "fraction": base }),
+            );
+            let raw_text = if settings.stt_provider == "local" {
+                set(app, |inner| {
+                    inner.media_progress_range = Some((base, chunk_span))
+                });
+                let request_id = worker::next_request_id(&app.state::<Arc<worker::Worker>>());
+                set(app, |inner| inner.transcribe_request_id = Some(request_id));
+                let response = request_with_id(
+                    app,
+                    &app.state::<Arc<worker::Worker>>(),
+                    json!({ "command": "transcribe", "audio_path": chunk }),
+                    Duration::from_secs(60 * 60),
+                    Some(request_id),
+                )
+                .await;
+                set(app, |inner| {
+                    inner.transcribe_request_id = None;
+                    inner.media_progress_range = None;
+                });
+                response?
+                    .payload
+                    .get("text")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string()
+            } else {
+                crate::cancellation::run(cancelled, providers::transcribe(settings, chunk)).await?
+            };
+            if !raw_text.trim().is_empty() {
+                let text = match crate::cancellation::run(
+                    cancelled,
+                    providers::postprocess(settings, &raw_text),
+                )
+                .await
+                {
+                    Ok(text) => text,
+                    Err(error) if error == crate::cancellation::CANCELLED => return Err(error),
+                    Err(error) => {
+                        warnings.push(format!(
+                            "Text processing failed for part {}: {error}",
+                            index + 1
+                        ));
+                        raw_text
+                    }
+                };
+                text_parts.push(text);
+            }
+            let fraction = 0.15 + chunk_span * (index + 1) as f32;
+            let _ = app.emit(
+                "vox:file-progress",
+                json!({ "stage": "transcribing", "fraction": fraction }),
+            );
+        }
+        check_cancelled(cancelled)?;
+        if text_parts.is_empty() {
+            return Err("No speech was detected in the selected file".into());
+        }
+
+        let text = text_parts.join("\n\n");
+        let mut warning = (!warnings.is_empty()).then(|| warnings.join(" "));
+        if settings.history_enabled {
+            match app.state::<HistoryStore>().add(
+                text.clone(),
+                settings.stt_provider.clone(),
+                history_model.to_string(),
+                Some(file_info.name.clone()),
+            ) {
+                Ok(entry) => {
+                    let _ = app.emit("vox:history-added", entry);
+                }
+                Err(error) => {
+                    let message = format!("The transcript could not be saved to history: {error}");
+                    warning = Some(match warning {
+                        Some(existing) => format!("{existing} {message}"),
+                        None => message,
+                    });
+                }
+            }
+        }
+        let _ = app.emit(
+            "vox:file-progress",
+            json!({ "stage": "done", "fraction": 1.0 }),
+        );
+        Ok(MediaTranscriptionResult {
+            text,
+            file_name: file_info.name.clone(),
+            duration,
+            has_video,
+            warning,
+        })
+    }
+    .await;
+
+    media::remove_files(&temporary_files);
+    result
+}
+
+fn selected_transcription_model(
+    inner: &crate::state::AppStateInner,
+    settings: &ProviderSettings,
+) -> String {
+    if settings.stt_provider == "local" {
+        inner
+            .current_model_id
+            .as_deref()
+            .and_then(|id| inner.models.iter().find(|model| model.id == id))
+            .map(|model| model.name.clone())
+            .unwrap_or_else(|| "Local Whisper".into())
+    } else {
+        settings
+            .providers
+            .get(&settings.stt_provider)
+            .map(|config| config.stt_model.clone())
+            .unwrap_or_default()
+    }
+}
+
+fn check_cancelled(cancelled: &std::sync::atomic::AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::SeqCst) {
+        Err(crate::cancellation::CANCELLED.into())
+    } else {
+        Ok(())
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -38,7 +414,7 @@ pub async fn check_cuda_runtime(app: AppHandle) -> Result<crate::state::CudaRunt
     let models_root = worker::model_dir(&app);
     let response = request(
         &app,
-        &*app.state::<Arc<worker::Worker>>(),
+        &app.state::<Arc<worker::Worker>>(),
         json!({"command": "verify_cuda_runtime", "models_root": models_root}),
         Duration::from_secs(30),
     )
@@ -82,6 +458,15 @@ pub async fn check_cuda_runtime(app: AppHandle) -> Result<crate::state::CudaRunt
 #[tauri::command(rename_all = "snake_case")]
 pub async fn install_cuda_runtime(app: AppHandle) -> Result<(), String> {
     log::info!("command: install_cuda_runtime");
+    if cfg!(target_os = "macos") {
+        return Err("CUDA runtime installation is not supported on macOS".into());
+    }
+    if !worker::is_alive(&app) {
+        return Err("Python engine is not running. Restart the engine first.".into());
+    }
+    if worker::is_busy(&app) {
+        return Err("The Python engine is busy with another operation".into());
+    }
     {
         let st = app.state::<AppState>();
         let mut inner = st.lock();
@@ -101,7 +486,7 @@ pub async fn install_cuda_runtime(app: AppHandle) -> Result<(), String> {
         let models_root = worker::model_dir(&app2);
         let result = request(
             &app2,
-            &*app2.state::<Arc<worker::Worker>>(),
+            &app2.state::<Arc<worker::Worker>>(),
             json!({"command": "download_cuda_runtime", "models_root": models_root}),
             Duration::from_secs(3600),
         )
@@ -219,10 +604,32 @@ pub async fn save_provider_settings(
     }
     let current = app.state::<AppState>().lock().provider_settings.clone();
     for (id, config) in &mut settings.providers {
-        config.api_key_set = current.providers.get(id).map(|saved| saved.api_key_set).unwrap_or(false);
+        config.api_key_set = current
+            .providers
+            .get(id)
+            .map(|saved| saved.api_key_set)
+            .unwrap_or(false);
     }
     providers::normalize(&mut settings);
     providers::validate(&settings)?;
+    if settings.stt_provider == "local" && settings.local_device != "auto" {
+        let state = app.state::<AppState>();
+        let inner = state.lock();
+        if inner.engine_status == EngineStatus::Ready {
+            if let Some(model) = inner
+                .current_model_id
+                .as_deref()
+                .and_then(|id| inner.models.iter().find(|model| model.id == id))
+            {
+                if !device_matches_backend(&model.backend, &settings.local_device) {
+                    return Err(format!(
+                        "Device '{}' is not compatible with the active {} model; choose Auto or a compatible device",
+                        settings.local_device, model.backend
+                    ));
+                }
+            }
+        }
+    }
     for (provider, secret) in secrets {
         if secret.trim().is_empty() {
             continue;
@@ -244,7 +651,11 @@ pub async fn save_provider_settings(
                 && settings.stt_provider == "local",
         )
     };
-    let path = app.state::<AppState>().lock().provider_settings_path.clone();
+    let path = app
+        .state::<AppState>()
+        .lock()
+        .provider_settings_path
+        .clone();
     providers::persist_settings(&path, &settings)?;
     set(&app, |inner| {
         inner.provider_settings = settings.clone();
@@ -292,7 +703,10 @@ fn notify_model_ready(app: &AppHandle) {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn delete_provider_secret(app: AppHandle, provider: String) -> Result<ProviderSettings, String> {
+pub async fn delete_provider_secret(
+    app: AppHandle,
+    provider: String,
+) -> Result<ProviderSettings, String> {
     if app.state::<AppState>().lock().phase != Phase::Idle {
         return Err("Provider credentials can only be changed while the app is idle".into());
     }
@@ -303,7 +717,10 @@ pub async fn delete_provider_secret(app: AppHandle, provider: String) -> Result<
         if let Some(config) = inner.provider_settings.providers.get_mut(&provider) {
             config.api_key_set = false;
         }
-        (inner.provider_settings_path.clone(), inner.provider_settings.clone())
+        (
+            inner.provider_settings_path.clone(),
+            inner.provider_settings.clone(),
+        )
     };
     providers::normalize(&mut settings);
     providers::refresh_secret_statuses(&mut settings);
@@ -316,13 +733,19 @@ pub async fn delete_provider_secret(app: AppHandle, provider: String) -> Result<
 #[tauri::command]
 pub async fn update_model_catalog(app: AppHandle) -> Result<usize, String> {
     log::info!("command: update_model_catalog");
+    if app.state::<AppState>().lock().phase != Phase::Idle {
+        return Err("The model catalog can only be updated while the app is idle".into());
+    }
     if !worker::is_alive(&app) {
         return Err("Python engine is not running. Restart the engine first.".into());
+    }
+    if worker::is_busy(&app) {
+        return Err("The Python engine is busy with another operation".into());
     }
 
     let response = request(
         &app,
-        &*app.state::<Arc<worker::Worker>>(),
+        &app.state::<Arc<worker::Worker>>(),
         json!({
             "command": "discover_models",
             "queries": ["whisper russian", "whisper codeswitch", "faster-whisper"],
@@ -339,14 +762,30 @@ pub async fn update_model_catalog(app: AppHandle) -> Result<usize, String> {
     let candidates: Vec<crate::state::ModelInfo> = serde_json::from_value(discovered)
         .map_err(|e| format!("invalid model discovery response: {e}"))?;
 
-    let count = candidates.len();
+    let mut count = 0;
+    let model_dir = worker::model_dir(&app);
     let state = app.state::<AppState>();
     let mut inner = state.lock();
+    let curated = crate::default_models();
     for mut candidate in candidates {
-        let model_path = worker::model_dir(&app)
+        if !crate::valid_catalog_entry(&candidate) {
+            log::warn!(
+                "ignoring discovered model {} with unsupported backend {}",
+                candidate.repo_id,
+                candidate.backend
+            );
+            continue;
+        }
+        if curated
+            .iter()
+            .any(|model| crate::same_model(model, &candidate))
+        {
+            continue;
+        }
+        let model_path = model_dir
             .join(&candidate.id)
             .join(candidate.ct2_subdir.as_deref().unwrap_or(""));
-        candidate.downloaded = model_path.join("model.bin").exists();
+        candidate.downloaded = crate::model_files_present(&model_path, &candidate.backend);
         if let Some(existing) = inner.models.iter_mut().find(|model| {
             model.id == candidate.id
                 || (model.repo_id == candidate.repo_id && model.ct2_subdir == candidate.ct2_subdir)
@@ -358,6 +797,7 @@ pub async fn update_model_catalog(app: AppHandle) -> Result<usize, String> {
         } else {
             inner.models.push(candidate);
         }
+        count += 1;
     }
     crate::persist_catalog(&inner.catalog_path, &inner.models)?;
     drop(inner);
@@ -368,14 +808,33 @@ pub async fn update_model_catalog(app: AppHandle) -> Result<usize, String> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn download_model(app: AppHandle, model_id: String) -> Result<(), String> {
     log::info!("command: download_model {}", model_id);
+    if !worker::is_alive(&app) {
+        return Err("Python engine is not running. Restart the engine first.".into());
+    }
+    if worker::is_busy(&app) {
+        return Err("The Python engine is busy with another operation".into());
+    }
 
-    let (repo_id, ct2_subdir, allow_patterns, revision) = {
+    let (repo_id, backend, ct2_subdir, allow_patterns, revision) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
-        let model = inner.models.iter().find(|m| m.id == model_id)
+        if inner.phase != Phase::Idle {
+            return Err("Models can only be downloaded while the app is idle".into());
+        }
+        let model = inner
+            .models
+            .iter()
+            .find(|m| m.id == model_id)
             .ok_or_else(|| format!("Model not found: {}", model_id))?;
+        if !crate::model_backend_supported(&model.backend) {
+            return Err(format!(
+                "The {} model backend is not supported on this platform",
+                model.backend
+            ));
+        }
         (
             model.repo_id.clone(),
+            model.backend.clone(),
             model.ct2_subdir.clone(),
             model.allow_patterns.clone(),
             model.revision.clone(),
@@ -388,7 +847,9 @@ pub async fn download_model(app: AppHandle, model_id: String) -> Result<(), Stri
         if inner.model_status == ModelStatus::Downloading {
             return Err("Download already in progress".into());
         }
-        if inner.current_model_id.as_deref() == Some(&model_id) && inner.model_status == ModelStatus::Downloaded {
+        if inner.current_model_id.as_deref() == Some(&model_id)
+            && inner.model_status == ModelStatus::Downloaded
+        {
             return Ok(());
         }
         inner.model_status = ModelStatus::Downloading;
@@ -403,12 +864,13 @@ pub async fn download_model(app: AppHandle, model_id: String) -> Result<(), Stri
         let dir = worker::model_dir(&app2);
         let result = request(
             &app2,
-            &*app2.state::<Arc<worker::Worker>>(),
+            &app2.state::<Arc<worker::Worker>>(),
             json!({
                 "command": "download_model",
                 "model_dir": dir,
                 "model_id": model_id,
                 "repo_id": repo_id,
+                "backend": backend,
                 "allow_patterns": allow_patterns,
                 "ct2_subdir": ct2_subdir,
                 "revision": revision,
@@ -447,10 +909,19 @@ pub async fn download_model(app: AppHandle, model_id: String) -> Result<(), Stri
 #[tauri::command(rename_all = "snake_case")]
 pub async fn delete_model(app: AppHandle, model_id: String) -> Result<(), String> {
     log::info!("command: delete_model {}", model_id);
+    if !worker::is_alive(&app) {
+        return Err("Python engine is not running. Restart the engine first.".into());
+    }
+    if worker::is_busy(&app) {
+        return Err("The Python engine is busy with another operation".into());
+    }
 
     {
         let st = app.state::<AppState>();
         let inner = st.lock();
+        if inner.phase != Phase::Idle {
+            return Err("Models can only be deleted while the app is idle".into());
+        }
         if !inner.models.iter().any(|model| model.id == model_id) {
             return Err(format!("Model not found: {model_id}"));
         }
@@ -466,7 +937,7 @@ pub async fn delete_model(app: AppHandle, model_id: String) -> Result<(), String
         let dir = worker::model_dir(&app2);
         let result = request(
             &app2,
-            &*app2.state::<Arc<worker::Worker>>(),
+            &app2.state::<Arc<worker::Worker>>(),
             json!({"command": "delete_model", "model_dir": dir, "model_id": model_id}),
             Duration::from_secs(30),
         )
@@ -501,20 +972,58 @@ pub async fn delete_model(app: AppHandle, model_id: String) -> Result<(), String
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>) -> Result<(), String> {
+pub async fn load_model(
+    app: AppHandle,
+    model_id: String,
+    device: Option<String>,
+) -> Result<(), String> {
     log::info!("command: load_model {} device={:?}", model_id, device);
 
-    let (ct2_subdir, target_device) = {
+    let (backend, ct2_subdir, target_device, normalized_device) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
-        let model = inner.models.iter().find(|m| m.id == model_id)
+        if inner.phase != Phase::Idle {
+            return Err("Models can only be loaded while the app is idle".into());
+        }
+        let model = inner
+            .models
+            .iter()
+            .find(|m| m.id == model_id)
             .ok_or_else(|| format!("Model not found: {}", model_id))?;
 
         if !model.downloaded {
             return Err("Model is not downloaded yet".into());
         }
-        let dev = device.unwrap_or_else(|| inner.provider_settings.local_device.clone());
-        (model.ct2_subdir.clone(), dev)
+        if !crate::model_backend_supported(&model.backend) {
+            return Err(format!(
+                "The {} model backend is not supported on this platform",
+                model.backend
+            ));
+        }
+        let explicit_device = device.is_some();
+        let mut dev = device.unwrap_or_else(|| inner.provider_settings.local_device.clone());
+        let normalized_device = !device_matches_backend(&model.backend, &dev);
+        if normalized_device {
+            if explicit_device {
+                return Err(format!(
+                    "Device '{dev}' is not compatible with the {} model backend",
+                    model.backend
+                ));
+            }
+            dev = "auto".into();
+        }
+        if inner.current_model_id.as_deref() == Some(model_id.as_str())
+            && inner.engine_status == EngineStatus::Ready
+            && (dev == "auto" || inner.device.as_deref() == Some(dev.as_str()))
+        {
+            return Ok(());
+        }
+        (
+            model.backend.clone(),
+            model.ct2_subdir.clone(),
+            dev,
+            normalized_device,
+        )
     };
 
     {
@@ -526,6 +1035,9 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
         inner.engine_status = EngineStatus::Loading;
         inner.engine_error = None;
         inner.current_model_id = Some(model_id.clone());
+        for model in &mut inner.models {
+            model.loaded = false;
+        }
         // Loading a local model means the user wants local transcription:
         // switch the STT provider to "local" (and persist it) so the status
         // and UI stop treating a cloud provider as the active one.
@@ -533,13 +1045,24 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
         if switched_to_local {
             inner.provider_settings.stt_provider = "local".into();
         }
-        let persist = switched_to_local.then(|| {
-            (inner.provider_settings_path.clone(), inner.provider_settings.clone())
+        if normalized_device {
+            inner.provider_settings.local_device = "auto".into();
+        }
+        let persist = (switched_to_local || normalized_device).then(|| {
+            (
+                inner.provider_settings_path.clone(),
+                inner.provider_settings.clone(),
+            )
         });
         drop(inner);
         if let Some((path, settings)) = persist {
             if let Err(e) = crate::providers::persist_settings(&path, &settings) {
                 log::warn!("failed to persist stt_provider switch to local: {e}");
+                set(&app, |inner| {
+                    inner.last_warning = Some(format!(
+                        "The model was selected, but the provider setting could not be saved: {e}"
+                    ));
+                });
             }
         }
     }
@@ -565,10 +1088,11 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
         let dir = worker::model_dir(&app2).join(&model_id);
         let result = request(
             &app2,
-            &*app2.state::<Arc<worker::Worker>>(),
+            &app2.state::<Arc<worker::Worker>>(),
             json!({
                 "command": "load_model",
                 "model_dir": dir,
+                "backend": backend,
                 "ct2_subdir": ct2_subdir,
                 "models_root": worker::model_dir(&app2),
                 "device": target_device,
@@ -597,8 +1121,8 @@ pub async fn load_model(app: AppHandle, model_id: String, device: Option<String>
                     i.last_error = None;
                     i.device = Some(device);
                     i.compute_type = Some(compute_type);
-                    if let Some(m) = i.models.iter_mut().find(|m| m.id == model_id) {
-                        m.loaded = true;
+                    for model in &mut i.models {
+                        model.loaded = model.id == model_id;
                     }
                 });
                 notify_model_ready(&app2);
@@ -624,6 +1148,12 @@ pub async fn unload_model(app: AppHandle) -> Result<(), String> {
     let current_model = {
         let st = app.state::<AppState>();
         let mut inner = st.lock();
+        if inner.phase != Phase::Idle {
+            return Err("The model can only be stopped while the app is idle".into());
+        }
+        if inner.engine_status == EngineStatus::Loading {
+            return Err("Wait for the model to finish loading".into());
+        }
         if inner.engine_status == EngineStatus::Stopped {
             return Ok(());
         }
@@ -730,9 +1260,10 @@ pub async fn set_hotkey(app: AppHandle, shortcut: String) -> Result<(), String> 
     }
 
     let hotkey_path = app.state::<AppState>().lock().hotkey_path.clone();
-    let persistence_error = std::fs::write(&hotkey_path, format!("{shortcut}\n"))
-        .err()
-        .map(|e| format!("Could not save push-to-talk key: {e}"));
+    let persistence_error =
+        crate::storage::write_atomic(&hotkey_path, format!("{shortcut}\n").as_bytes())
+            .err()
+            .map(|e| format!("Could not save push-to-talk key: {e}"));
     set(&app, |i| {
         i.hotkey = shortcut.clone();
         i.hotkey_registered = true;
@@ -746,20 +1277,30 @@ pub async fn set_hotkey(app: AppHandle, shortcut: String) -> Result<(), String> 
 #[tauri::command]
 pub async fn start_recording(app: AppHandle) -> Result<(), String> {
     log::info!("command: start_recording");
-    {
+    let (provider_settings, engine_ready) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
         if inner.phase != Phase::Idle {
             return Err(format!("Cannot start recording while {:?}", inner.phase));
         }
-        if !providers::stt_ready(&inner.provider_settings, inner.engine_status == EngineStatus::Ready) {
-            return Err("The selected transcription provider is not ready. Open Settings to configure it.".into());
-        }
-        if providers::provider_needs_key(&inner.provider_settings.stt_provider)
-            && !providers::secret_available(&inner.provider_settings.stt_provider)
-        {
-            return Err("The API key for the selected transcription provider is unavailable".into());
-        }
+        (
+            inner.provider_settings.clone(),
+            inner.engine_status == EngineStatus::Ready,
+        )
+    };
+    if !providers::stt_ready(&provider_settings, engine_ready) {
+        return Err(
+            "The selected transcription provider is not ready. Open Settings to configure it."
+                .into(),
+        );
+    }
+    if providers::provider_needs_key(&provider_settings.stt_provider)
+        && !providers::secret_available(&provider_settings.stt_provider)
+    {
+        return Err("The API key for the selected transcription provider is unavailable".into());
+    }
+    if provider_settings.stt_provider == "local" && worker::is_busy(&app) {
+        return Err("The local engine is busy with another operation".into());
     }
 
     let recorder = match Recorder::start() {
@@ -774,13 +1315,29 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
     };
 
     let mic_name = recorder.mic_name();
-    set(&app, |i| {
-        i.phase = Phase::Recording;
-        i.mic_name = mic_name;
-        i.recorder = Some(recorder);
-        i.last_error = None;
-        i.last_warning = None;
-    });
+    {
+        let st = app.state::<AppState>();
+        let mut inner = st.lock();
+        // Opening a device can take time. Another command may have started
+        // recording or changed providers while this stream was being opened.
+        if inner.phase != Phase::Idle {
+            return Err(format!("Cannot start recording while {:?}", inner.phase));
+        }
+        if !providers::stt_ready(
+            &inner.provider_settings,
+            inner.engine_status == EngineStatus::Ready,
+        ) {
+            return Err("The selected transcription provider is no longer ready".into());
+        }
+        if inner.provider_settings.stt_provider == "local" && worker::is_busy(&app) {
+            return Err("The local engine is busy with another operation".into());
+        }
+        inner.phase = Phase::Recording;
+        inner.mic_name = mic_name;
+        inner.recorder = Some(recorder);
+        inner.last_error = None;
+        inner.last_warning = None;
+    }
 
     // Spawn a polling task that emits audio level + spectrum events while recording.
     let app2 = app.clone();
@@ -795,13 +1352,7 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
                 }
                 match &inner.recorder {
                     Some(r) => r.snapshot(),
-                    None => {
-                        set(&app2, |i| {
-                            i.audio_level = 0.0;
-                            i.audio_spectrum = vec![0.0; 32];
-                        });
-                        continue;
-                    }
+                    None => break,
                 }
             };
             set(&app2, |i| {
@@ -830,6 +1381,10 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
         }
         inner.ptt_pressed = false;
         inner.ptt_generation = inner.ptt_generation.wrapping_add(1);
+        // Taking the recorder and changing phase must be atomic: the meter
+        // task and a second stop request must not observe a missing recorder.
+        inner.phase = Phase::Transcribing;
+        inner.transcribe_cancel.store(false, Ordering::SeqCst);
         inner.recorder.take()
     };
     let recorder = match recorder {
@@ -847,10 +1402,6 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
 
     // Publish the state transition before any potentially blocking stream
     // shutdown or disk work. The UI must never remain in "Recording" here.
-    set(&app, |i| {
-        i.phase = Phase::Transcribing;
-        i.transcribe_cancel.store(false, Ordering::SeqCst);
-    });
     emit_status(&app);
 
     let app2 = app.clone();
@@ -896,13 +1447,14 @@ async fn transcribe_recording(
     log::info!("recorded {rec_duration:.1}s of audio");
 
     // Check if cancellation was requested before we even start
-    if app.state::<AppState>().lock().transcribe_cancel.load(Ordering::SeqCst) {
+    if app
+        .state::<AppState>()
+        .lock()
+        .transcribe_cancel
+        .load(Ordering::SeqCst)
+    {
         log::info!("transcription cancelled before start");
-        set(&app, |i| {
-            i.phase = Phase::Idle;
-        });
-        emit_status(&app);
-        let _ = std::fs::remove_file(temp_wav_path());
+        set_idle_error(&app, "Transcription cancelled".to_string());
         return Err("Transcription cancelled".to_string());
     }
 
@@ -937,8 +1489,28 @@ async fn transcribe_recording(
         return Err(error);
     }
 
-    let settings = app.state::<AppState>().lock().provider_settings.clone();
+    let (settings, history_model) = {
+        let state = app.state::<AppState>();
+        let inner = state.lock();
+        let settings = inner.provider_settings.clone();
+        let model = if settings.stt_provider == "local" {
+            inner
+                .current_model_id
+                .as_deref()
+                .and_then(|id| inner.models.iter().find(|model| model.id == id))
+                .map(|model| model.name.clone())
+                .unwrap_or_else(|| "Local Whisper".into())
+        } else {
+            settings
+                .providers
+                .get(&settings.stt_provider)
+                .map(|config| config.stt_model.clone())
+                .unwrap_or_default()
+        };
+        (settings, model)
+    };
     let local_transcription = settings.stt_provider == "local";
+    let cancelled = app.state::<AppState>().lock().transcribe_cancel.clone();
 
     // Generate a request ID upfront for local transcription so we can store
     // it in state and cancel the pending worker request later.
@@ -954,6 +1526,20 @@ async fn transcribe_recording(
         None
     };
 
+    // Cancellation can arrive while the WAV is being encoded, before a
+    // request ID exists. Recheck after publishing the ID so it cannot be lost.
+    if app
+        .state::<AppState>()
+        .lock()
+        .transcribe_cancel
+        .load(Ordering::SeqCst)
+    {
+        let _ = std::fs::remove_file(&wav_path);
+        set(&app, |i| i.transcribe_request_id = None);
+        set_idle_error(&app, "Transcription cancelled".to_string());
+        return Err("Transcription cancelled".to_string());
+    }
+
     let result: Result<String, String> = if local_transcription {
         // This box's CPU can run at RTF ~15-20, so a long dictation legitimately
         // takes minutes. Size the timeout from the recorded duration with a wide margin.
@@ -965,25 +1551,35 @@ async fn transcribe_recording(
         );
         request_with_id(
             &app,
-            &*app.state::<Arc<worker::Worker>>(),
+            &app.state::<Arc<worker::Worker>>(),
             json!({"command": "transcribe", "audio_path": wav_path}),
             timeout,
             worker_request_id,
         )
         .await
         .map(|msg| {
-            let text = msg.payload.get("text").and_then(|value| value.as_str()).unwrap_or("").to_string();
+            let text = msg
+                .payload
+                .get("text")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
             log::info!(
                 "local transcription: audio={:?}s inference={:?}s rtf={:?}",
                 msg.payload.get("audio_s").and_then(|value| value.as_f64()),
-                msg.payload.get("inference_s").and_then(|value| value.as_f64()),
+                msg.payload
+                    .get("inference_s")
+                    .and_then(|value| value.as_f64()),
                 msg.payload.get("rtf").and_then(|value| value.as_f64()),
             );
             text
         })
     } else {
-        let _ = app.emit("vox:transcribe-progress", json!({ "elapsed": 0, "fraction": 0.12 }));
-        providers::transcribe(&settings, &wav_path).await
+        let _ = app.emit(
+            "vox:transcribe-progress",
+            json!({ "elapsed": 0, "fraction": 0.12 }),
+        );
+        crate::cancellation::run(&cancelled, providers::transcribe(&settings, &wav_path)).await
     };
 
     let _ = std::fs::remove_file(&wav_path);
@@ -992,12 +1588,14 @@ async fn transcribe_recording(
     set(&app, |i| i.transcribe_request_id = None);
 
     // Check if the user cancelled while we were waiting
-    if app.state::<AppState>().lock().transcribe_cancel.load(Ordering::SeqCst) {
+    if app
+        .state::<AppState>()
+        .lock()
+        .transcribe_cancel
+        .load(Ordering::SeqCst)
+    {
         log::info!("transcription cancelled during processing");
-        set(&app, |i| {
-            i.phase = Phase::Idle;
-        });
-        emit_status(&app);
+        set_idle_error(&app, "Transcription cancelled".to_string());
         return Err("Transcription cancelled".to_string());
     }
 
@@ -1006,21 +1604,46 @@ async fn transcribe_recording(
             let (text, warning) = if raw_text.trim().is_empty() {
                 (raw_text, None)
             } else {
-                let _ = app.emit("vox:transcribe-progress", json!({ "elapsed": 0, "fraction": 0.86 }));
-                match providers::postprocess(&settings, &raw_text).await {
+                let _ = app.emit(
+                    "vox:transcribe-progress",
+                    json!({ "elapsed": 0, "fraction": 0.86 }),
+                );
+                match crate::cancellation::run(
+                    &cancelled,
+                    providers::postprocess(&settings, &raw_text),
+                )
+                .await
+                {
                     Ok(processed) => (processed, None),
                     Err(error) => {
                         log::warn!("text post-processing failed; using raw transcript: {error}");
-                        (raw_text, Some(format!("Text processing failed; the raw transcript was copied: {error}")))
+                        (
+                            raw_text,
+                            Some(format!(
+                                "Text processing failed; the raw transcript was copied: {error}"
+                            )),
+                        )
                     }
                 }
             };
+            // Cancellation during the optional cloud post-processing stage
+            // must never publish the result or overwrite the clipboard.
+            // Serialize publication with cancel_transcription's state update.
+            let st = app.state::<AppState>();
+            let mut inner = st.lock();
+            if inner.transcribe_cancel.load(Ordering::SeqCst) {
+                inner.phase = Phase::Idle;
+                inner.last_error = Some("Transcription cancelled".to_string());
+                inner.last_warning = None;
+                drop(inner);
+                emit_status(&app);
+                return Err("Transcription cancelled".to_string());
+            }
             if text.trim().is_empty() {
                 let e = "No speech detected in the recording".to_string();
-                set(&app, |i| {
-                    i.phase = Phase::Idle;
-                    i.last_error = Some(e.clone());
-                });
+                inner.phase = Phase::Idle;
+                inner.last_error = Some(e.clone());
+                drop(inner);
                 emit_status(&app);
                 return Err(e);
             }
@@ -1037,13 +1660,37 @@ async fn transcribe_recording(
                 }
             };
 
-            set(&app, |i| {
-                i.phase = Phase::Idle;
-                i.last_text = Some(text.clone());
-                i.last_copied = copied;
-                i.last_error = None;
-                i.last_warning = warning;
-            });
+            inner.phase = Phase::Idle;
+            inner.last_text = Some(text.clone());
+            inner.last_copied = copied;
+            inner.last_error = None;
+            inner.last_warning = warning;
+            drop(inner);
+
+            if settings.history_enabled {
+                match app.state::<HistoryStore>().add(
+                    text.clone(),
+                    settings.stt_provider.clone(),
+                    history_model,
+                    None,
+                ) {
+                    Ok(entry) => {
+                        let _ = app.emit("vox:history-added", entry);
+                    }
+                    Err(error) => {
+                        log::warn!("failed to save transcription history: {error}");
+                        set(&app, |inner| {
+                            let history_warning = format!(
+                                "The transcript was copied but could not be saved to history: {error}"
+                            );
+                            inner.last_warning = Some(match inner.last_warning.take() {
+                                Some(existing) => format!("{existing} {history_warning}"),
+                                None => history_warning,
+                            });
+                        });
+                    }
+                }
+            }
             emit_status(&app);
             Ok(text)
         }
@@ -1058,20 +1705,31 @@ async fn transcribe_recording(
             let channel_broken = e.contains("did not answer")
                 || e.contains("closed the connection")
                 || e.contains("is not running")
-                || e.contains("Failed to write to worker");
+                || e.contains("Failed to write to worker")
+                || e.contains("transcription timed out");
             if local_transcription && channel_broken {
                 log::warn!("worker channel broken; restarting the worker");
                 let _ = worker::kill(&app).await;
                 if worker::start(&app).await.is_ok() {
                     // The fresh worker has no model loaded; reload the
                     // previously loaded one so the next dictation just works.
-                    let model_id = app
-                        .state::<AppState>()
-                        .lock()
-                        .current_model_id
-                        .clone();
+                    let model_id = {
+                        let st = app.state::<AppState>();
+                        let mut inner = st.lock();
+                        inner.phase = Phase::Idle;
+                        inner.engine_status = EngineStatus::Stopped;
+                        inner.engine_error = None;
+                        inner.device = None;
+                        inner.compute_type = None;
+                        for model in &mut inner.models {
+                            model.loaded = false;
+                        }
+                        inner.current_model_id.clone()
+                    };
                     if let Some(model_id) = model_id {
-                        let _ = load_model(app.clone(), model_id, None).await;
+                        if let Err(reload_error) = load_model(app.clone(), model_id, None).await {
+                            log::warn!("model reload after worker recovery failed: {reload_error}");
+                        }
                     }
                 }
             }
@@ -1113,15 +1771,10 @@ pub fn mark_ptt_released(app: &AppHandle) -> Option<u64> {
 fn should_finish_released_recording(app: &AppHandle, generation: u64) -> bool {
     let st = app.state::<AppState>();
     let inner = st.lock();
-    inner.ptt_generation != generation
-        && !inner.ptt_pressed
-        && inner.phase == Phase::Recording
+    inner.ptt_generation != generation && !inner.ptt_pressed && inner.phase == Phase::Recording
 }
 
-pub async fn start_recording_after_ptt(
-    app: AppHandle,
-    generation: u64,
-) -> Result<(), String> {
+pub async fn start_recording_after_ptt(app: AppHandle, generation: u64) -> Result<(), String> {
     let result = start_recording(app.clone()).await;
 
     if let Err(error) = result {
@@ -1183,29 +1836,26 @@ pub async fn cancel_transcription(app: AppHandle) -> Result<(), String> {
         }
         inner.transcribe_cancel.store(true, Ordering::SeqCst);
         let rid = inner.transcribe_request_id.take();
-        inner.phase = Phase::Idle;
+        // Keep ownership until the transcription task has actually stopped.
+        // Otherwise a new recording can reset this task's cancellation flag.
         inner.ptt_pressed = false;
         inner.ptt_generation = inner.ptt_generation.wrapping_add(1);
         (true, rid)
     };
     if was_transcribing {
-        if let Some(rid) = request_id {
-            if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
-                worker::cancel_request(&worker_arc, rid);
-            }
-        }
         // Send cancel command to the Python worker so it stops inference
-        // between segments. This is fire-and-forget: the worker processes
-        // it inline in the stdin loop even while transcription runs.
-        if worker::is_alive(&app) {
+        // between segments. The acknowledgement is bounded; the original
+        // transcription request retains ownership until inference stops.
+        if request_id.is_some() && worker::is_alive(&app) {
             if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
                 let _ = worker::request_with_id(
                     &app,
                     &worker_arc,
-                    json!({"command": "cancel_transcription"}),
+                    json!({"command": "cancel_transcription", "request_id": request_id}),
                     Duration::from_secs(3),
                     None,
-                ).await;
+                )
+                .await;
             }
         }
         emit_status(&app);
@@ -1216,6 +1866,9 @@ pub async fn cancel_transcription(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn restart_worker(app: AppHandle) -> Result<(), String> {
     log::info!("command: restart_worker");
+    if app.state::<AppState>().lock().phase != Phase::Idle {
+        return Err("The engine can only be restarted while the app is idle".into());
+    }
     let _ = worker::kill(&app).await;
     match worker::start(&app).await {
         Ok(()) => {
@@ -1224,6 +1877,9 @@ pub async fn restart_worker(app: AppHandle) -> Result<(), String> {
                 i.engine_error = None;
                 i.device = None;
                 i.compute_type = None;
+                for model in &mut i.models {
+                    model.loaded = false;
+                }
                 i.phase = Phase::Idle;
                 i.ptt_pressed = false;
                 i.ptt_generation = i.ptt_generation.wrapping_add(1);
@@ -1256,8 +1912,8 @@ pub fn set_tray_language(app: AppHandle, language: String) {
 
 #[tauri::command]
 pub fn set_app_icon(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
-    let image = tauri::image::Image::from_bytes(&bytes)
-        .map_err(|e| format!("invalid icon image: {e}"))?;
+    let image =
+        tauri::image::Image::from_bytes(&bytes).map_err(|e| format!("invalid icon image: {e}"))?;
     if let Some(tray) = app.tray_by_id("hotyap-tray") {
         tray.set_icon(Some(image.clone()))
             .map_err(|e| format!("tray icon update failed: {e}"))?;
@@ -1292,8 +1948,7 @@ fn set_taskbar_icon(app: &AppHandle, bytes: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "main window handle unavailable".to_string())?;
 
     // Build a 256px PNG (taskbar standard large icon size) from the source.
-    let decoded =
-        image::load_from_memory(bytes).map_err(|e| format!("decode icon: {e}"))?;
+    let decoded = image::load_from_memory(bytes).map_err(|e| format!("decode icon: {e}"))?;
     let resized = decoded.resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
     let mut png = Vec::new();
     resized

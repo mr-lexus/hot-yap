@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -15,6 +15,9 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::state::{self, AppState};
+
+static START_LOCK: Mutex<()> = Mutex::const_new(());
+const MAX_WORKER_DOWNLOAD_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// One message from the worker (always carries an id when it answers a request).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,21 +51,38 @@ struct WorkerLaunch {
     script: Option<PathBuf>,
 }
 
+struct RemoveFileOnDrop(PathBuf);
+
+impl Drop for RemoveFileOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Remove requests on every exit path, including timeout and future cancellation.
+struct PendingRequest<'a> {
+    worker: &'a Worker,
+    id: u64,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.worker.pending.lock().unwrap().remove(&self.id);
+    }
+}
+
 /// Events that terminate a request (everything else is treated as progress).
 fn is_terminal(msg: &WorkerMessage) -> bool {
     if msg.ok == Some(false) {
         return true;
     }
-    matches!(
+    !matches!(
         msg.event.as_deref(),
         Some(
-            "status"
-                | "model_downloaded"
-                | "model_loaded"
-                | "transcribed"
-                | "shutdown_ack"
-                | "cuda_runtime_verified"
-                | "cuda_runtime_downloaded"
+            "download_progress"
+                | "transcribe_progress"
+                | "cuda_runtime_progress"
+                | "media_progress",
         )
     )
 }
@@ -168,7 +188,9 @@ pub fn worker_install_path(data_dir: &Path) -> PathBuf {
 /// Whether a runnable local worker is already available on this machine
 /// (env override, bundled next to the exe, downloaded to app data, or dev venv).
 pub fn worker_installed(data_dir: &Path) -> bool {
-    if std::env::var_os("VOXSHIFT_WORKER").is_some() || std::env::var_os("VOXSHIFT_PYTHON").is_some() {
+    if std::env::var_os("VOXSHIFT_WORKER").is_some()
+        || std::env::var_os("VOXSHIFT_PYTHON").is_some()
+    {
         return true;
     }
     let bundled = std::env::current_exe()
@@ -239,6 +261,7 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("cannot create worker dir {}: {e}", dir.display()))?;
     let final_path = worker_install_path(&data_dir);
     let tmp_path = dir.join(format!("{}.download", worker_exe_name()));
+    let _temporary_file = RemoveFileOnDrop(tmp_path.clone());
 
     let client = reqwest::Client::builder()
         .user_agent("HotYap/0.1")
@@ -258,6 +281,12 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
         ));
     }
     let total = response.content_length().unwrap_or(0);
+    if total > MAX_WORKER_DOWNLOAD_BYTES {
+        return Err(format!(
+            "worker download is unexpectedly large: {} MB",
+            total / (1024 * 1024)
+        ));
+    }
 
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
@@ -280,15 +309,31 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
             .await
             .map_err(|e| format!("cannot write worker: {e}"))?;
         received += chunk.len() as u64;
+        if received > MAX_WORKER_DOWNLOAD_BYTES {
+            drop(file);
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err("worker download exceeded the 4 GB safety limit".to_string());
+        }
         if total > 0 {
             let fraction = (received as f64 / total as f64).clamp(0.0, 1.0) as f32;
-            let _ = app.emit("vox:worker-download-progress", json!({ "fraction": fraction }));
+            let _ = app.emit(
+                "vox:worker-download-progress",
+                json!({ "fraction": fraction }),
+            );
         }
     }
     file.flush()
         .await
         .map_err(|e| format!("cannot flush worker: {e}"))?;
+    file.sync_all()
+        .await
+        .map_err(|e| format!("cannot persist worker: {e}"))?;
     drop(file);
+    if total > 0 && received != total {
+        return Err(format!(
+            "worker download was truncated: expected {total} bytes, received {received}"
+        ));
+    }
 
     if let Some(expected) = worker_sha256() {
         let expected = expected.trim();
@@ -308,7 +353,7 @@ pub async fn install_worker(app: &AppHandle) -> Result<(), String> {
             .map_err(|e| format!("cannot mark worker executable: {e}"))?;
     }
 
-    std::fs::rename(&tmp_path, &final_path)
+    crate::storage::replace_file(&tmp_path, &final_path)
         .map_err(|e| format!("cannot install worker: {e}"))?;
     let _ = app.emit("vox:worker-download-progress", json!({ "fraction": 1.0 }));
     log::info!("worker installed at {}", final_path.display());
@@ -344,6 +389,16 @@ pub fn is_alive(app: &AppHandle) -> bool {
 
 /// Spawn the Python worker process and wire up stdin/stdout/stderr handling.
 pub async fn start(app: &AppHandle) -> Result<(), String> {
+    let _start_guard = START_LOCK.lock().await;
+    if is_alive(app) {
+        return Ok(());
+    }
+    // A closed protocol pipe can mark the worker dead before the operating
+    // system process exits. Reap that process before publishing a new
+    // generation, otherwise two inference workers can retain the same model.
+    if app.try_state::<Arc<Worker>>().is_some() {
+        kill(app).await?;
+    }
     let data_dir = app
         .path()
         .app_data_dir()
@@ -359,6 +414,12 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         // The piped stdin/stdout/stderr are unaffected, so the JSONL
         // protocol still works.
         command.creation_flags(0x0800_0000);
+    }
+    #[cfg(unix)]
+    {
+        // PyInstaller onefile can use a parent bootloader plus a Python child.
+        // A dedicated process group lets restart/shutdown terminate both.
+        command.process_group(0);
     }
     if let Some(script) = &launch.script {
         command.arg(script);
@@ -384,7 +445,7 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         Some(existing) => existing.inner().clone(),
         None => {
             let worker = Arc::new(Worker {
-                alive: AtomicBool::new(true),
+                alive: AtomicBool::new(false),
                 generation: AtomicU64::new(0),
                 child: Mutex::new(None),
                 pid: StdMutex::new(None),
@@ -396,8 +457,12 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
             worker
         }
     };
-    worker.alive.store(true, Ordering::SeqCst);
-    worker.pending.lock().unwrap().clear();
+    let generation = {
+        let mut pending = worker.pending.lock().unwrap();
+        let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        pending.clear();
+        generation
+    };
     *worker.pid.lock().unwrap() = child.id();
     *worker.stdin.lock().await = None;
     // A previous watcher may still hold the child lock if its process is
@@ -408,12 +473,9 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         }
         Err(_) => {
             let _ = kill(app).await;
-            return Err(
-                "previous worker process did not die; cannot start a new one".to_string(),
-            );
+            return Err("previous worker process did not die; cannot start a new one".to_string());
         }
     }
-    let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     let (stdout, stderr, stdin) = {
         let mut child = worker.child.lock().await;
@@ -421,10 +483,14 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         (child.stdout.take(), child.stderr.take(), child.stdin.take())
     };
     *worker.stdin.lock().await = stdin;
+    // Publish readiness only after every pipe is installed. Commands may be
+    // invoked concurrently with a restart and must never observe a live
+    // worker whose stdin is still unavailable.
+    worker.alive.store(true, Ordering::SeqCst);
 
     match (stdout, stderr) {
         (Some(out), Some(err)) if worker.stdin.lock().await.is_some() => {
-            spawn_stdout_reader(worker.clone(), out);
+            spawn_stdout_reader(worker.clone(), out, generation);
             spawn_stderr_reader(err);
             spawn_watcher(app.clone(), worker.clone(), generation);
         }
@@ -454,7 +520,7 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-fn spawn_stdout_reader(worker: Arc<Worker>, stdout: tokio::process::ChildStdout) {
+fn spawn_stdout_reader(worker: Arc<Worker>, stdout: tokio::process::ChildStdout, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         let mut read_error = None;
@@ -469,6 +535,9 @@ fn spawn_stdout_reader(worker: Arc<Worker>, stdout: tokio::process::ChildStdout)
                         Ok(msg) => {
                             if let Some(id) = msg.id {
                                 let mut pending = worker.pending.lock().unwrap();
+                                if worker.generation.load(Ordering::SeqCst) != generation {
+                                    return;
+                                }
                                 if let Some(tx) = pending.get(&id) {
                                     let _ = tx.send(msg.clone());
                                     if is_terminal(&msg) {
@@ -496,8 +565,11 @@ fn spawn_stdout_reader(worker: Arc<Worker>, stdout: tokio::process::ChildStdout)
         // worker spawned from a GUI parent: python keeps running and printed
         // its reply, but the pipe broke). Fail every pending request right
         // away instead of letting the caller spin until its timeout.
-        worker.alive.store(false, Ordering::SeqCst);
         let mut pending = worker.pending.lock().unwrap();
+        if worker.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        worker.alive.store(false, Ordering::SeqCst);
         for (_, tx) in pending.drain() {
             let _ = tx.send(WorkerMessage {
                 id: None,
@@ -527,6 +599,9 @@ fn spawn_watcher(app: AppHandle, worker: Arc<Worker>, generation: u64) {
         // lifetime of the worker process.
         let child = {
             let mut guard = worker.child.lock().await;
+            if worker.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
             guard.take()
         };
         let status = match child {
@@ -536,16 +611,24 @@ fn spawn_watcher(app: AppHandle, worker: Arc<Worker>, generation: u64) {
         if status.is_none() {
             return;
         }
-        if worker.generation.load(Ordering::SeqCst) != generation {
-            return;
-        }
-        log::info!("worker process exited: {:?}", status);
-        worker.alive.store(false, Ordering::SeqCst);
         {
             let mut pending = worker.pending.lock().unwrap();
+            if worker.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            log::info!("worker process exited: {:?}", status);
+            worker.alive.store(false, Ordering::SeqCst);
+            // The PID belongs to this generation. Clearing it here prevents a
+            // later restart from signalling a recycled operating-system PID.
+            worker.pid.lock().unwrap().take();
             pending.clear(); // dropping senders resolves pending requests with None
         }
-        state::on_worker_exit(&app);
+        // Do not hold the pending-request mutex while locking AppState.
+        // Recording startup takes those locks in the opposite order.
+        let _start_guard = START_LOCK.lock().await;
+        if worker.generation.load(Ordering::SeqCst) == generation {
+            state::on_worker_exit(&app);
+        }
     });
 }
 
@@ -560,9 +643,9 @@ pub async fn request(
     request_with_id(app, worker, command, timeout, None).await
 }
 
-/// Like [`request`] but lets the caller provide a specific request ID. Used
-/// by `cancel_transcription` so the ID can be stored in state for later
-/// cancellation via [`cancel_request`].
+/// Like [`request`] but lets the caller provide a specific request ID. The
+/// transcription command stores that ID so a targeted cancellation message
+/// can be sent while the original request remains pending.
 pub async fn request_with_id(
     app: &AppHandle,
     worker: &Worker,
@@ -576,6 +659,7 @@ pub async fn request_with_id(
     let id = external_id.unwrap_or_else(|| worker.next_id.fetch_add(1, Ordering::SeqCst));
     let (tx, mut rx) = mpsc::unbounded_channel();
     worker.pending.lock().unwrap().insert(id, tx);
+    let _pending_request = PendingRequest { worker, id };
 
     let mut line = json!({"id": id});
     if let Value::Object(map) = &mut line {
@@ -583,12 +667,12 @@ pub async fn request_with_id(
             map.extend(cmd);
         }
     }
-    log::debug!("-> worker {line}");
+    log::debug!("-> worker {}", command_for_log(&line));
 
     let write_res = {
-        let stdin_opt = worker.stdin.lock().await.take();
-        match stdin_opt {
-            Some(mut s) => {
+        let mut stdin = worker.stdin.lock().await;
+        match stdin.as_mut() {
+            Some(s) => {
                 let mut buf = line.to_string();
                 buf.push('\n');
                 // Writing must be bounded too: if the worker stopped reading
@@ -608,7 +692,6 @@ pub async fn request_with_id(
                         "timed out writing to worker",
                     )),
                 };
-                *worker.stdin.lock().await = Some(s);
                 res
             }
             None => Err(std::io::Error::new(
@@ -658,10 +741,33 @@ pub async fn request_with_id(
         }
         if msg.event.as_deref() == Some("transcribe_progress") {
             if let Some(e) = msg.payload.get("elapsed").and_then(|v| v.as_f64()) {
-                let _ = app.emit("vox:transcribe-progress", json!({
-                    "elapsed": e,
-                    "fraction": msg.payload.get("fraction").and_then(|v| v.as_f64())
-                }));
+                let _ = app.emit(
+                    "vox:transcribe-progress",
+                    json!({
+                        "elapsed": e,
+                        "fraction": msg.payload.get("fraction").and_then(|v| v.as_f64())
+                    }),
+                );
+            }
+            if let Some(raw_fraction) = msg.payload.get("fraction").and_then(|v| v.as_f64()) {
+                let range = app
+                    .try_state::<AppState>()
+                    .and_then(|state| state.lock().media_progress_range);
+                if let Some((base, span)) = range {
+                    let fraction = base as f64 + raw_fraction * span as f64;
+                    let _ = app.emit(
+                        "vox:file-progress",
+                        json!({ "stage": "transcribing", "fraction": fraction }),
+                    );
+                }
+            }
+        }
+        if msg.event.as_deref() == Some("media_progress") {
+            if let Some(fraction) = msg.payload.get("fraction").and_then(|value| value.as_f64()) {
+                let _ = app.emit(
+                    "vox:file-progress",
+                    json!({ "stage": "decoding", "fraction": fraction * 0.15 }),
+                );
             }
         }
         if msg.event.as_deref() == Some("cuda_runtime_progress") {
@@ -673,6 +779,18 @@ pub async fn request_with_id(
             }
         }
     }
+}
+
+fn command_for_log(command: &Value) -> Value {
+    let mut sanitized = command.clone();
+    if let Value::Object(fields) = &mut sanitized {
+        for key in ["audio_path", "input_path", "output_path"] {
+            if fields.contains_key(key) {
+                fields.insert(key.to_string(), Value::String("<redacted>".into()));
+            }
+        }
+    }
+    sanitized
 }
 
 /// Ask the worker to shut down, wait briefly, then kill it if needed.
@@ -707,9 +825,9 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
     }
     // Kill by OS pid first: `spawn_watcher` may have taken the `Child` out of
     // `worker.child` to wait on it, so the handle below is not always
-    // available. taskkill /T terminates the whole PyInstaller tree
-    // (bootloader + python child), which a plain child.kill() would leave
-    // orphaned and holding the model + VRAM.
+    // available. taskkill /T on Windows and the negative process-group ID on
+    // Unix terminate the whole PyInstaller tree (bootloader + Python child),
+    // which a plain child.kill() could leave orphaned with the model in memory.
     let pid = worker.pid.lock().unwrap().take();
     if let Some(pid) = pid {
         let mut command = if cfg!(windows) {
@@ -722,7 +840,7 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
             c
         } else {
             let mut c = std::process::Command::new("kill");
-            c.args(["-9", &pid.to_string()]);
+            c.args(["-9", &format!("-{pid}")]);
             c
         };
         // taskkill is a short synchronous call; run it off the async runtime.
@@ -750,22 +868,6 @@ pub async fn kill(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Cancel a pending request by sending it an error response and removing it
-/// from the pending map. Used to abort an in-flight transcription so the
-/// caller's `request()` returns immediately with an error.
-pub fn cancel_request(worker: &Worker, id: u64) {
-    let mut pending = worker.pending.lock().unwrap();
-    if let Some(tx) = pending.remove(&id) {
-        let _ = tx.send(WorkerMessage {
-            id: Some(id),
-            ok: Some(false),
-            event: None,
-            error: Some("Transcription cancelled".to_string()),
-            payload: json!({}),
-        });
-    }
-}
-
 pub fn model_dir(app: &AppHandle) -> PathBuf {
     let st = app.state::<AppState>();
     let inner = st.lock();
@@ -773,8 +875,90 @@ pub fn model_dir(app: &AppHandle) -> PathBuf {
 }
 
 /// Allocate a new request ID without sending a request. Used by
-/// `transcribe_recording` so the ID can be stored in state for later
-/// cancellation via [`cancel_request`].
+/// `transcribe_recording` so the ID can be stored in state for a later
+/// targeted cancellation command to the worker.
 pub fn next_request_id(worker: &Worker) -> u64 {
     worker.next_id.fetch_add(1, Ordering::SeqCst)
+}
+
+pub fn is_busy(app: &AppHandle) -> bool {
+    app.try_state::<Arc<Worker>>()
+        .map(|worker| !worker.pending.lock().unwrap().is_empty())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_log_hides_user_file_paths() {
+        let command = json!({
+            "id": 7,
+            "command": "prepare_media",
+            "input_path": "C:/Users/person/private meeting.mp4",
+            "output_path": "C:/Temp/hotyap.wav",
+        });
+
+        let sanitized = command_for_log(&command).to_string();
+
+        assert!(!sanitized.contains("private meeting"));
+        assert!(!sanitized.contains("hotyap.wav"));
+        assert_eq!(sanitized.matches("<redacted>").count(), 2);
+    }
+
+    #[test]
+    fn recognizes_all_terminal_protocol_events() {
+        for event in ["status", "model_deleted", "future_terminal_event"] {
+            let message: WorkerMessage = serde_json::from_value(json!({
+                "id": 1, "ok": true, "event": event,
+            }))
+            .unwrap();
+            assert!(is_terminal(&message), "terminal event: {event}");
+        }
+        let eventless: WorkerMessage =
+            serde_json::from_value(json!({"id": 1, "ok": true})).unwrap();
+        assert!(is_terminal(&eventless));
+        for event in [
+            "download_progress",
+            "transcribe_progress",
+            "cuda_runtime_progress",
+            "media_progress",
+        ] {
+            let message: WorkerMessage = serde_json::from_value(json!({
+                "id": 1, "ok": true, "event": event,
+            }))
+            .unwrap();
+            assert!(!is_terminal(&message), "progress event: {event}");
+        }
+        let error = serde_json::from_value(json!({"id": 1, "ok": false})).unwrap();
+        assert!(is_terminal(&error));
+    }
+
+    #[test]
+    fn abandoned_request_removes_its_pending_sender() {
+        let worker = Worker {
+            alive: AtomicBool::new(true),
+            generation: AtomicU64::new(1),
+            child: Mutex::new(None),
+            pid: StdMutex::new(None),
+            stdin: Mutex::new(None),
+            pending: StdMutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        worker.pending.lock().unwrap().insert(1, tx);
+        {
+            let _request = PendingRequest {
+                worker: &worker,
+                id: 1,
+            };
+            assert_eq!(worker.pending.lock().unwrap().len(), 1);
+        }
+        assert!(worker.pending.lock().unwrap().is_empty());
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ));
+    }
 }

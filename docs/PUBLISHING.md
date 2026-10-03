@@ -4,7 +4,7 @@
 
 ## 1. Текущий статус
 
-Канал выпуска: **`0.1.0-alpha.1`**.
+Канал выпуска: **`0.1.0-alpha.16`**.
 
 Это alpha, а не beta, по следующим причинам:
 
@@ -14,7 +14,7 @@
 - установщики пока не подписаны сертификатами Windows и Apple;
 - API и формат локальных данных ещё могут меняться.
 
-Версия приложения внутри `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` и `backend/worker.py` остаётся `0.1.0`. Суффикс канала находится в Git-теге `v0.1.0-alpha.1` и имени GitHub prerelease.
+Версия приложения внутри `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` и `backend/worker.py` остаётся `0.1.0`. Суффикс канала находится в Git-теге `v0.1.0-alpha.16` и имени GitHub prerelease.
 
 ## 2. Публичные ссылки
 
@@ -148,7 +148,7 @@ python3 -m compileall -q backend
 
 Код выбора находится в `src-tauri/src/worker.rs`. Release-only настройки находятся в `src-tauri/tauri.release.conf.json`, поэтому обычный `pnpm tauri dev` не требует наличия sidecar-файла.
 
-Точные верхнеуровневые зависимости release worker зафиксированы в `backend/requirements-release.txt`. Workflow дополнительно запускает JSONL smoke test готового worker до упаковки приложения.
+Точные верхнеуровневые зависимости release worker зафиксированы в `backend/requirements-release.txt`. PyAV и его FFmpeg-библиотеки входят в sidecar и декодируют импортированные аудио- и видеофайлы без внешнего `ffmpeg`. Workflow дополнительно запускает JSONL smoke test готового worker до упаковки приложения.
 
 ### CUDA runtime в Windows-бандле
 
@@ -183,14 +183,14 @@ Workflow: `.github/workflows/release.yml`.
 | Linux x86_64 | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | DEB, RPM, AppImage |
 | Windows x86_64 | `windows-2022` | `x86_64-pc-windows-msvc` | MSI, NSIS EXE |
 | macOS Intel | `macos-15-intel` | `x86_64-apple-darwin` | DMG |
-| macOS Apple Silicon | `macos-14` | `aarch64-apple-darwin` | DMG |
+| macOS Apple Silicon | `macos-15` | `aarch64-apple-darwin` | DMG |
 
 Каждая задача выполняет один и тот же порядок:
 
 1. Устанавливает Node, pnpm, Python 3.12 и Rust target.
 2. Устанавливает системные Tauri-зависимости на Linux.
 3. Собирает нативный PyInstaller worker текущей архитектуры.
-4. Проверяет worker через JSON Lines: на Linux/macOS командами `status` и `shutdown`, на Windows — `verify_cuda_runtime` (загрузка CUDA runtime DLL) и `shutdown`.
+4. Проверяет worker через JSON Lines: на Linux/macOS командами `status` и `shutdown`, на Apple Silicon дополнительно импортирует MLX и выполняет MLX-операцию на CPU через `verify_mlx_runtime` (hosted runner не гарантирует доступ к Metal), а на Windows — `verify_cuda_runtime` и `verify_vad`. Реальная Metal-операция выполняется приложением при загрузке MLX-модели.
 5. Запускает `tauri-apps/tauri-action` с release-конфигурацией.
 6. Добавляет пакеты в GitHub prerelease.
 
@@ -208,13 +208,13 @@ backend/worker.py
 Первый релиз:
 
 ```bash
-git tag v0.1.0-alpha.1
-git push origin v0.1.0-alpha.1
+git tag v0.1.0-alpha.16
+git push origin v0.1.0-alpha.16
 ```
 
-Тег должен соответствовать шаблону `v*-alpha.*`. Workflow автоматически создаст публичный prerelease и добавит пакеты по мере завершения четырёх matrix jobs.
+Тег должен соответствовать шаблону `v*-alpha.*`. Workflow создаёт draft prerelease и добавляет пакеты по мере завершения четырёх matrix jobs. После успешных проверок и проверки всех 11 assets опубликовать его: `gh release edit v0.1.0-alpha.16 --draft=false --prerelease --notes-file docs/RELEASE_ALPHA_16.md`.
 
-Альтернативный путь: открыть `Actions → Build alpha release → Run workflow`, указать `v0.1.0-alpha.1` и запустить вручную.
+Альтернативный путь: открыть `Actions → Build alpha release → Run workflow`, указать `v0.1.0-alpha.16` и запустить вручную.
 
 Перед анонсом проверить:
 

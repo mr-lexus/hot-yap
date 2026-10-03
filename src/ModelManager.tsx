@@ -26,9 +26,11 @@ export default function ModelManager({ open, onClose, status, busy, onRefresh }:
   const [actionBusy, setActionBusy] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [catalogCount, setCatalogCount] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setActionError(null);
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -57,6 +59,7 @@ export default function ModelManager({ open, onClose, status, busy, onRefresh }:
     const score = (model: typeof left) => {
       if (model.id === status.current_model_id) return -100;
       if (model.downloaded) return -50;
+      if (model.family === "Apple Silicon") return -30;
       if (model.family === "Code Switch") return -20;
       if (model.family === "Russian First") return -10;
       return 0;
@@ -69,10 +72,12 @@ export default function ModelManager({ open, onClose, status, busy, onRefresh }:
 
   const withAction = async (action: () => Promise<unknown>) => {
     setActionBusy(true);
+    setActionError(null);
     try {
       await action();
     } catch (e) {
       console.error("Model action failed:", e);
+      setActionError(String(e));
     } finally {
       setActionBusy(false);
     }
@@ -130,6 +135,8 @@ export default function ModelManager({ open, onClose, status, busy, onRefresh }:
             <p>{t("models.help.updates")}</p>
           </aside>
         )}
+
+        {actionError && <p className="error-msg" role="alert">{actionError}</p>}
 
         <div className="model-overview">
           <span>{t("models.readyCount", { downloaded: downloadedCount, total: models.length })}</span>
