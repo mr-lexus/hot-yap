@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import type { Accent, IconPreference } from "./appearance";
 import { ACCENTS, ICON_PREFERENCES } from "./appearance";
 import Icon from "./Icons";
-import type { ModelBackend, ProviderConfig, ProviderSettings } from "./types";
+import AudioSettings from "./AudioSettings";
+import DictationSettings from "./DictationSettings";
+import type { PasteSupport, ModelBackend, ProviderConfig, ProviderSettings } from "./types";
 
 interface SettingsModalProps {
   open: boolean;
@@ -49,6 +51,7 @@ export default function SettingsModal({ open, accent, iconPreference, cudaSuppor
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [pasteSupport, setPasteSupport] = useState<PasteSupport | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const savingRef = useRef(saving);
@@ -60,6 +63,7 @@ export default function SettingsModal({ open, accent, iconPreference, cudaSuppor
     if (!open) return;
     let current = true;
     setSettings(null);
+    void invoke<PasteSupport>("paste_support").then(v => { if (current) setPasteSupport(v); }).catch(() => {});
     setError(null);
     setSaved(false);
     setSecrets({});
@@ -319,6 +323,8 @@ export default function SettingsModal({ open, accent, iconPreference, cudaSuppor
             )}
           </section>
 
+          {settings && <><AudioSettings settings={settings} disabled={saving} onChange={next => { setSettings(next); setSaved(false); }} />
+              <DictationSettings settings={settings} pasteSupport={pasteSupport} disabled={saving} onChange={next => { setSettings(next); setSaved(false); }} /></>}
           <section className="settings-section">
             <div className="settings-section-heading">
               <span className="panel-icon"><Icon name="history" size={15} /></span>

@@ -1,0 +1,655 @@
+.dictionary-modal {
+  width: min(1000px, calc(100vw - 36px));
+  max-height: min(820px, calc(100vh - var(--titlebar-h) - 36px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  box-shadow: 0 28px 90px var(--shadow);
+  overflow: hidden;
+}
+.dictionary-modal > .modal-header {
+  padding: 22px 24px 20px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.dictionary-modal > .modal-header h2 {
+  font-size: 23px;
+  line-height: 1.2;
+  font-weight: 600;
+  margin: 0 0 7px;
+}
+.dictionary-modal > .modal-header .modal-subtitle {
+  margin: 0;
+  font-size: 12px;
+}
+.dictionary-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+.dictionary-layout {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+}
+.dictionary-sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  background: var(--surface-soft);
+  border-right: 1px solid var(--line);
+  gap: 5px;
+}
+.dictionary-scope {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+.dictionary-scope > span:first-of-type {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dictionary-scope.selected {
+  color: var(--text);
+  background: rgb(var(--accent-rgb) / 0.1);
+  border-color: rgb(var(--accent-rgb) / 0.22);
+}
+.dictionary-scope.selected svg {
+  color: var(--accent);
+}
+.dictionary-scope b {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.dictionary-sidebar-label {
+  padding: 22px 10px 7px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--faint);
+}
+.dictionary-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.dictionary-add-project {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 12px 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.dictionary-learning {
+  margin-top: auto;
+  padding: 26px 9px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: var(--muted);
+}
+.dictionary-learning > svg {
+  color: var(--accent);
+}
+.dictionary-learning strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.dictionary-learning p {
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 0;
+}
+.dictionary-modal input:not([type="checkbox"]),
+.dictionary-modal select {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface-input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+.dictionary-modal input:focus,
+.dictionary-modal select:focus {
+  outline: 2px solid rgb(var(--accent-rgb) / 0.5);
+  outline-offset: 1px;
+}
+.dictionary-modal input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.dictionary-main {
+  padding: 22px 24px;
+  min-width: 0;
+}
+.dictionary-scope-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.dictionary-scope-header h3 {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.dictionary-scope-header p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 400px;
+}
+.dictionary-scope-header > button {
+  flex-shrink: 0;
+}
+.dictionary-project-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px 4px 10px;
+  margin-bottom: 18px;
+}
+.dictionary-project-path > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.dictionary-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 22px 0 15px;
+}
+.dictionary-toolbar .model-search {
+  flex: 1;
+  max-width: 215px;
+  min-width: 130px;
+}
+.dictionary-toolbar .model-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-input);
+  color: var(--faint);
+}
+.dictionary-toolbar .model-search input {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.dictionary-entry-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+  background: var(--surface-soft);
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+.dictionary-entry-form > svg {
+  margin-bottom: 11px;
+  color: var(--faint);
+}
+.dictionary-entry-form label {
+  font-size: 10px;
+  color: var(--muted);
+  display: grid;
+  gap: 7px;
+}
+.dictionary-entry-form p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--faint);
+}
+.dictionary-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 51px;
+  border-bottom: 1px solid var(--line);
+}
+.dictionary-entry.disabled .dictionary-entry-words {
+  opacity: 0.45;
+}
+.dictionary-entry-words {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+  font-size: 12px;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.dictionary-entry-words > span {
+  color: var(--muted);
+}
+.dictionary-entry-words > svg {
+  flex-shrink: 0;
+  color: var(--faint);
+}
+.dictionary-entry-words > strong {
+  font-weight: 550;
+}
+.dictionary-origin {
+  color: var(--faint);
+  font-size: 9px;
+  padding: 3px 6px;
+  background: var(--surface-soft);
+  border-radius: 5px;
+}
+.dictionary-enable {
+  display: flex;
+  align-items: center;
+}
+.dictionary-empty {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 42px 25px;
+  text-align: center;
+  gap: 12px;
+  color: var(--faint);
+}
+.dictionary-empty > svg {
+  color: var(--accent);
+  opacity: 0.7;
+}
+.dictionary-empty strong {
+  color: var(--muted);
+  font-size: 13px;
+}
+.dictionary-empty p {
+  font-size: 12px;
+  max-width: 320px;
+  line-height: 1.7;
+  margin: 0;
+}
+.dictionary-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--faint);
+}
+.dictionary-footer > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dictionary-error {
+  color: var(--red);
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.dictionary-loading {
+  padding: 50px;
+  color: var(--muted);
+}
+.dictionary-project-form {
+  display: grid;
+  gap: 8px;
+}
+.dictionary-scan {
+  padding: 15px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.3);
+  border-radius: 10px;
+  background: rgb(var(--accent-rgb) / 0.04);
+}
+.dictionary-scan-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dictionary-scan-heading strong {
+  font-size: 12px;
+}
+.dictionary-scan-heading p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.dictionary-term-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 5px 0;
+}
+.dictionary-term-cloud label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font:
+    11px ui-monospace,
+    monospace;
+  cursor: pointer;
+}
+.dictionary-term-cloud label.selected {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+.dictionary-term-cloud label.exists {
+  opacity: 0.5;
+}
+.dictionary-term-cloud input {
+  margin: 0;
+}
+.dictionary-scan-actions {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+}
+.dictionary-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--amber);
+  font-size: 12px;
+}
+.project-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  padding-top: 13px;
+}
+.project-picker > svg {
+  color: var(--accent);
+}
+.project-picker select {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 7px 9px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11px;
+}
+.transcript-editor {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  background: var(--surface-input);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.7;
+  user-select: text;
+}
+.transcript-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.transcript-edit-actions > span {
+  color: var(--faint);
+  font-size: 10px;
+}
+.live-transcript {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+.live-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--accent);
+  margin: 14px 0 6px;
+}
+.live-label::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.dictation-setting {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dictation-setting label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+.dictation-setting p {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.dictation-setting input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.dictation-setting select {
+  color: var(--text);
+  background: var(--surface-input);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px;
+  max-width: 190px;
+}
+@media (max-width: 720px) {
+  .dictionary-modal {
+    width: calc(100vw - 18px);
+    max-height: calc(100vh - var(--titlebar-h) - 20px);
+  }
+  .dictionary-layout {
+    grid-template-columns: 1fr;
+  }
+  .dictionary-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 12px;
+    gap: 6px;
+  }
+  .dictionary-scope {
+    width: auto;
+    max-width: 200px;
+    padding: 8px;
+  }
+  .dictionary-sidebar-label {
+    display: none;
+  }
+  .dictionary-learning {
+    width: 100%;
+    padding: 9px 0 0;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+  }
+  .dictionary-learning > p {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .dictionary-learning label {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .dictionary-learning select {
+    max-width: 175px;
+  }
+  .dictionary-main {
+    padding: 16px;
+  }
+  .dictionary-scope-header {
+    flex-wrap: wrap;
+  }
+  .dictionary-entry-form {
+    grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
+  }
+  .dictionary-entry-form > button {
+    grid-row: 2;
+  }
+  .dictionary-origin {
+    display: none;
+  }
+  .dictionary-footer {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+}
+
+.dictionary-toolbar .model-search {
+  flex-direction: row;
+  height: 36px;
+  padding: 0 10px;
+}
+.dictionary-toolbar .model-search input {
+  height: 33px;
+}
+
+.microphone-device-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.microphone-device-row select {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  padding: 9px;
+}
+.microphone-test {
+  margin: 16px 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-input);
+}
+.microphone-test.is-testing {
+  border-color: var(--accent);
+}
+.microphone-test-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.microphone-test-heading strong {
+  font-size: 13px;
+}
+.microphone-test-heading p,
+.microphone-test-device {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 5px 0 0;
+}
+.microphone-test-heading .btn {
+  flex-shrink: 0;
+}
+.microphone-level {
+  height: 8px;
+  background: var(--line);
+  overflow: hidden;
+  border-radius: 8px;
+  margin: 16px 0 10px;
+}
+.microphone-level span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 100ms ease-out;
+}
+.microphone-test-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.microphone-test-status span + span {
+  flex-shrink: 0;
+}
+.microphone-test-device {
+  overflow-wrap: anywhere;
+}
+.microphone-warning {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-input);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .microphone-test-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .microphone-test-status {
+    flex-wrap: wrap;
+  }
+}

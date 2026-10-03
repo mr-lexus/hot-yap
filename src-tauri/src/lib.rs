@@ -1,12 +1,17 @@
 mod audio;
 mod cancellation;
 mod commands;
+mod dictionary;
 mod error;
 mod history;
+mod live;
 mod media;
+mod microphone;
+mod paste;
 mod providers;
 mod state;
 mod storage;
+mod system_audio;
 mod worker;
 
 use std::path::Path;
@@ -596,6 +601,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::Builder::new().app_name("HotYap").build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -642,7 +648,9 @@ pub fn run() {
             let hotkey_path = data_dir.join(HOTKEY_FILE);
             let provider_settings_path = data_dir.join(PROVIDER_SETTINGS_FILE);
             let provider_settings = providers::load_settings(&provider_settings_path);
+            app.manage(microphone::MicrophoneTest::default());
             app.manage(history::HistoryStore::load(data_dir.join(HISTORY_FILE)));
+            app.manage(dictionary::DictionaryStore::load(data_dir.join("dictionary.json")));
             let configured_hotkey = std::fs::read_to_string(&hotkey_path)
                 .ok()
                 .map(|value| value.trim().to_string())
@@ -659,6 +667,13 @@ pub fn run() {
             }
 
             app.manage(AppState(Mutex::new(AppStateInner {
+                live_text: String::new(),
+                last_pasted: false,
+                live_stop: None,
+                live_task: None,
+                recording_dictionary: dictionary::Dictionary::default(),
+                last_project_id: None,
+                paste_target: None,
                 model_status: state::ModelStatus::NotDownloaded,
                 model_error: None,
                 engine_status: state::EngineStatus::Stopped,
@@ -840,7 +855,11 @@ pub fn run() {
                                 let mut inner = st.lock();
                                 inner.force_quit = true;
                                 inner.closing = true;
+                                inner.transcribe_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                                if let Some(stop) = &inner.live_stop { stop.store(true, std::sync::atomic::Ordering::SeqCst); }
+                                inner.recorder.take();
                             }
+                            microphone::stop_all(app);
                             let app = app.clone();
                             tauri::async_runtime::spawn(async move {
                                 let _ = tokio::time::timeout(
@@ -859,6 +878,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dictionary::get_dictionary,
+            dictionary::save_dictionary,
+            dictionary::scan_project,
+            paste::paste_support,
+            microphone::list_microphones,
+            microphone::start_microphone_test,
+            microphone::stop_microphone_test,
+            microphone::microphone_test_status,
+            commands::correct_last_transcript,
             ping,
             commands::get_status,
             commands::list_models,
@@ -894,13 +922,15 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" { return; }
                 let app = window.app_handle().clone();
+                microphone::stop_all(&app);
                 // If the user explicitly requested quit from the tray, allow
                 // the window to close and the app to shut down normally.
                 let force_quit = {
                     let st = app.state::<AppState>();
                     let inner = st.lock();
-                    inner.force_quit
+                    inner.force_quit || !inner.provider_settings.close_to_tray
                 };
                 if force_quit {
                     // Start graceful shutdown (worker teardown + exit) only once.
@@ -911,6 +941,9 @@ pub fn run() {
                             true
                         } else {
                             inner.closing = true;
+                            inner.transcribe_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                            if let Some(stop) = &inner.live_stop { stop.store(true, std::sync::atomic::Ordering::SeqCst); }
+                            inner.recorder.take();
                             false
                         }
                     };

@@ -242,7 +242,17 @@ jobs:
       - name: Remove worker build intermediates (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Remove-Item -Recurse -Force build/pyinstaller, build/worker
+        run: |
+          $workspaceRoot = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          foreach ($relative in @('build/pyinstaller', 'build/worker')) {
+            if (Test-Path -LiteralPath $relative) {
+              $targetPath = (Resolve-Path -LiteralPath $relative).Path
+              if (-not $targetPath.StartsWith($workspaceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Build cleanup path escaped the workspace"
+              }
+              Remove-Item -LiteralPath $targetPath -Recurse -Force
+            }
+          }
 
       - name: Compute worker checksum (Unix)
         if: runner.os != 'Windows'
@@ -269,7 +279,7 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "HotYap ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: |
-            HotYap alpha: local RU/EN dictation, optional text-only history, audio/video file transcription, and native MLX/Metal models for Apple Silicon.
+            HotYap alpha: personal and project dictionaries, live local dictation with optional preview, automatic paste, microphone controls, and desktop integration.
 
             The local transcription engine is downloaded automatically on first use, and speech models are downloaded separately. These builds are currently unsigned; operating-system warnings are expected.
 

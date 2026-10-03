@@ -784,7 +784,13 @@ pub async fn request_with_id(
 fn command_for_log(command: &Value) -> Value {
     let mut sanitized = command.clone();
     if let Value::Object(fields) = &mut sanitized {
-        for key in ["audio_path", "input_path", "output_path"] {
+        for key in [
+            "audio_path",
+            "input_path",
+            "output_path",
+            "vocabulary",
+            "context",
+        ] {
             if fields.contains_key(key) {
                 fields.insert(key.to_string(), Value::String("<redacted>".into()));
             }

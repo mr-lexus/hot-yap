@@ -1,6 +1,8 @@
 import type { StatusReport } from "./types";
 
 export const DEFAULT_STATUS: StatusReport = {
+  live_text: "",
+  last_pasted: false,
   model_status: "not_downloaded",
   model_error: null,
   engine_status: "stopped",
@@ -44,6 +46,16 @@ export const DEFAULT_STATUS: StatusReport = {
   cuda_supported: true,
   metal_supported: false,
   provider_settings: {
+    live_transcription: false,
+    live_final_pass: true,
+    dictation_preview: true,
+    input_device: null,
+    system_audio: "nothing",
+    launch_at_startup: false,
+    close_to_tray: true,
+    auto_paste: false,
+    paste_terminal: false,
+    paste_delay_ms: 250,
     stt_provider: "local",
     text_provider: "none",
     postprocess_prompt: "",

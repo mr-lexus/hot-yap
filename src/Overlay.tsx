@@ -210,7 +210,7 @@ export default function Overlay() {
           hint: t(status.stt_provider === "local" ? "overlay.processingUnknown" : "overlay.processingCloudUnknown"),
         }
       : mode === "success"
-        ? { title: t("overlay.copied"), hint: t("overlay.copiedHint") }
+        ? { title: t(status.last_pasted ? "dictationFlow.pasted" : "overlay.copied"), hint: t(status.last_pasted ? "dictationFlow.pastedHint" : "overlay.copiedHint") }
         : mode === "copy-error"
           ? { title: t("overlay.copyError"), hint: t("overlay.copyErrorHint") }
           : mode === "ready"
@@ -218,7 +218,7 @@ export default function Overlay() {
             : { title: t("overlay.error"), hint: t("overlay.errorHint") };
 
   return (
-    <main className={`ptt-overlay overlay-theme-${panelTheme} mode-${mode}`}>
+    <main className={`ptt-overlay overlay-theme-${panelTheme} mode-${mode} ${status.provider_settings.dictation_preview && status.live_text && (mode === "recording" || mode === "processing") ? "has-live-text" : ""}`}>
       <div
         className={`overlay-logo ${voiceIntensity > 0.08 ? "is-talking" : ""}`}
         style={logoMotionStyle}
@@ -261,6 +261,7 @@ export default function Overlay() {
         {(mode === "success" || mode === "ready") && <span className="overlay-result success"><Icon name="check" size={22} /></span>}
         {(mode === "error" || mode === "copy-error" || mode === "idle") && <span className="overlay-result error"><Icon name="close" size={21} /></span>}
       </div>
+      {status.provider_settings.dictation_preview && status.live_text && (mode === "recording" || mode === "processing") && <div className="overlay-live-text" aria-label={t("dictationFlow.preview")}>{status.live_text.slice(-280)}</div>}
     </main>
   );
 }

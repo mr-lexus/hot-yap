@@ -7,12 +7,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import worker
 
 
-def transcribe(state, audio_path, on_progress, on_cancel):
+def transcribe(state, audio_path, on_progress, on_cancel, **options):
     worker.reply(None, {"event": "test_started"})
     if audio_path == "wait":
         if not state["cancel_event"].wait(10):
             raise RuntimeError("test transcription was not cancelled")
-    return {"text": audio_path}
+    return {"text": audio_path, "test_options": options}
 
 
 sys.modules["inference"] = types.SimpleNamespace(

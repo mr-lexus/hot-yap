@@ -75,6 +75,15 @@ fn local_device_supported(device: &str) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemAudio {
+    #[default]
+    Nothing,
+    Mute,
+    Duck,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderSettings {
     pub stt_provider: String,
@@ -82,6 +91,26 @@ pub struct ProviderSettings {
     pub postprocess_prompt: String,
     #[serde(default)]
     pub history_enabled: bool,
+    #[serde(default)]
+    pub live_transcription: bool,
+    #[serde(default = "default_final_pass")]
+    pub live_final_pass: bool,
+    #[serde(default = "default_final_pass")]
+    pub dictation_preview: bool,
+    #[serde(default)]
+    pub input_device: Option<String>,
+    #[serde(default)]
+    pub system_audio: SystemAudio,
+    #[serde(default)]
+    pub launch_at_startup: bool,
+    #[serde(default = "default_final_pass")]
+    pub close_to_tray: bool,
+    #[serde(default)]
+    pub auto_paste: bool,
+    #[serde(default)]
+    pub paste_terminal: bool,
+    #[serde(default = "default_paste_delay")]
+    pub paste_delay_ms: u64,
     #[serde(default = "default_local_device")]
     pub local_device: String,
     pub providers: HashMap<String, ProviderConfig>,
@@ -160,6 +189,16 @@ impl Default for ProviderSettings {
             text_provider: "none".into(),
             postprocess_prompt: DEFAULT_PROMPT.into(),
             history_enabled: false,
+            live_transcription: false,
+            live_final_pass: true,
+            dictation_preview: true,
+            input_device: None,
+            system_audio: SystemAudio::Nothing,
+            launch_at_startup: false,
+            close_to_tray: true,
+            auto_paste: false,
+            paste_terminal: false,
+            paste_delay_ms: 250,
             local_device: "auto".into(),
             providers,
         }
@@ -186,6 +225,7 @@ pub fn load_settings(path: &Path) -> ProviderSettings {
 }
 
 pub fn normalize(settings: &mut ProviderSettings) {
+    settings.paste_delay_ms = settings.paste_delay_ms.clamp(150, 2000);
     let defaults = ProviderSettings::default();
     if !STT_PROVIDER_IDS.contains(&settings.stt_provider.as_str()) {
         settings.stt_provider = "local".into();
@@ -233,7 +273,22 @@ pub fn normalize(settings: &mut ProviderSettings) {
         .retain(|id, _| PROVIDER_IDS.contains(&id.as_str()));
 }
 
+fn default_paste_delay() -> u64 {
+    250
+}
+fn default_final_pass() -> bool {
+    true
+}
+
 pub fn validate(settings: &ProviderSettings) -> Result<(), String> {
+    if settings
+        .input_device
+        .as_ref()
+        .is_some_and(|id| id.is_empty() || id.len() > 4096)
+    {
+        return Err("Invalid microphone identifier".into());
+    }
+
     if !STT_PROVIDER_IDS.contains(&settings.stt_provider.as_str()) {
         return Err("Unknown speech-to-text provider".into());
     }
@@ -831,6 +886,38 @@ mod tests {
         assert_eq!(settings.stt_provider, "local");
         assert_eq!(settings.text_provider, "none");
         assert!(!settings.history_enabled);
+    }
+
+    #[test]
+    fn legacy_settings_keep_new_features_opt_in() {
+        let mut value = serde_json::to_value(ProviderSettings::default()).unwrap();
+        for name in [
+            "live_transcription",
+            "live_final_pass",
+            "dictation_preview",
+            "input_device",
+            "system_audio",
+            "launch_at_startup",
+            "close_to_tray",
+            "auto_paste",
+            "paste_terminal",
+            "paste_delay_ms",
+        ] {
+            value.as_object_mut().unwrap().remove(name);
+        }
+        let mut settings: ProviderSettings = serde_json::from_value(value).unwrap();
+        assert!(!settings.live_transcription);
+        assert!(!settings.auto_paste);
+        assert!(settings.live_final_pass);
+        assert!(settings.dictation_preview);
+        assert!(settings.close_to_tray);
+        assert!(!settings.launch_at_startup);
+        assert!(settings.input_device.is_none());
+        assert_eq!(settings.system_audio, SystemAudio::Nothing);
+        assert_eq!(settings.paste_delay_ms, 250);
+        settings.paste_delay_ms = u64::MAX;
+        normalize(&mut settings);
+        assert_eq!(settings.paste_delay_ms, 2000);
     }
 
     #[test]

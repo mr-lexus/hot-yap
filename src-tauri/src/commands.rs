@@ -224,6 +224,7 @@ async fn transcribe_prepared_media(
     history_model: &str,
     cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<MediaTranscriptionResult, String> {
+    let dict = app.state::<crate::dictionary::DictionaryStore>().snapshot();
     let mut temporary_files = vec![normalized_path.to_path_buf()];
     let result = async {
         let request_id = worker::next_request_id(&app.state::<Arc<worker::Worker>>());
@@ -288,7 +289,7 @@ async fn transcribe_prepared_media(
                 let response = request_with_id(
                     app,
                     &app.state::<Arc<worker::Worker>>(),
-                    json!({ "command": "transcribe", "audio_path": chunk }),
+                    json!({ "command": "transcribe", "audio_path": chunk, "vocabulary": dict.hints(), "term_fixes": false }),
                     Duration::from_secs(60 * 60),
                     Some(request_id),
                 )
@@ -324,7 +325,7 @@ async fn transcribe_prepared_media(
                         raw_text
                     }
                 };
-                text_parts.push(text);
+                text_parts.push(dict.apply(&text));
             }
             let fraction = 0.15 + chunk_span * (index + 1) as f32;
             let _ = app.emit(
@@ -590,7 +591,13 @@ pub async fn list_models(app: AppHandle) -> Result<Vec<crate::state::ModelInfo>,
 
 #[tauri::command]
 pub async fn get_provider_settings(app: AppHandle) -> Result<ProviderSettings, String> {
-    Ok(app.state::<AppState>().lock().provider_settings.clone())
+    use tauri_plugin_autostart::ManagerExt;
+    let mut settings = app.state::<AppState>().lock().provider_settings.clone();
+    settings.launch_at_startup = app
+        .autolaunch()
+        .is_enabled()
+        .map_err(|e| format!("Cannot read system startup setting: {e}"))?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -656,7 +663,31 @@ pub async fn save_provider_settings(
         .lock()
         .provider_settings_path
         .clone();
-    providers::persist_settings(&path, &settings)?;
+    use tauri_plugin_autostart::ManagerExt;
+    let startup = app.autolaunch();
+    let was_enabled = startup.is_enabled().map_err(|e| e.to_string())?;
+    if was_enabled != settings.launch_at_startup {
+        (if settings.launch_at_startup {
+            startup.enable()
+        } else {
+            startup.disable()
+        })
+        .map_err(|e| format!("Cannot change system startup setting: {e}"))?;
+    }
+    if let Err(error) = providers::persist_settings(&path, &settings) {
+        if was_enabled != settings.launch_at_startup {
+            if let Err(rollback) = if was_enabled {
+                startup.enable()
+            } else {
+                startup.disable()
+            } {
+                return Err(format!(
+                    "{error}. Could not restore startup setting: {rollback}"
+                ));
+            }
+        }
+        return Err(error);
+    }
     set(&app, |inner| {
         inner.provider_settings = settings.clone();
         inner.last_error = None;
@@ -688,7 +719,7 @@ pub async fn save_provider_settings(
 
 /// Switch the speech-to-text provider (used by the system tray model menu).
 pub async fn switch_stt_provider(app: AppHandle, provider_id: String) -> Result<(), String> {
-    let mut settings = app.state::<AppState>().lock().provider_settings.clone();
+    let mut settings = get_provider_settings(app.clone()).await?;
     settings.stt_provider = provider_id;
     save_provider_settings(app, settings, HashMap::new())
         .await
@@ -1280,7 +1311,7 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
     let (provider_settings, engine_ready) = {
         let st = app.state::<AppState>();
         let inner = st.lock();
-        if inner.phase != Phase::Idle {
+        if inner.closing || inner.phase != Phase::Idle {
             return Err(format!("Cannot start recording while {:?}", inner.phase));
         }
         (
@@ -1303,7 +1334,14 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
         return Err("The local engine is busy with another operation".into());
     }
 
-    let recorder = match Recorder::start() {
+    // Permission checks may take time; open the microphone immediately so
+    // the beginning of the dictation is still captured while they complete.
+    let paste_capture = provider_settings
+        .auto_paste
+        .then(|| tauri::async_runtime::spawn_blocking(crate::paste::capture));
+    let dict = app.state::<crate::dictionary::DictionaryStore>().snapshot();
+    crate::microphone::stop_all(&app);
+    let mut recorder = match Recorder::start(provider_settings.input_device.as_deref()) {
         Ok(r) => r,
         Err(e) => {
             set(&app, |i| {
@@ -1314,13 +1352,18 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
         }
     };
 
+    let paste_target = if let Some(capture) = paste_capture {
+        capture.await.ok().flatten()
+    } else {
+        None
+    };
     let mic_name = recorder.mic_name();
     {
         let st = app.state::<AppState>();
         let mut inner = st.lock();
         // Opening a device can take time. Another command may have started
         // recording or changed providers while this stream was being opened.
-        if inner.phase != Phase::Idle {
+        if inner.closing || inner.phase != Phase::Idle {
             return Err(format!("Cannot start recording while {:?}", inner.phase));
         }
         if !providers::stt_ready(
@@ -1332,11 +1375,36 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
         if inner.provider_settings.stt_provider == "local" && worker::is_busy(&app) {
             return Err("The local engine is busy with another operation".into());
         }
+        // Attach the output guard while holding the session lock, so a quit
+        // cannot exit between muting the output and owning its restoration.
+        let output_warning = recorder
+            .control_output(provider_settings.system_audio)
+            .err()
+            .map(|e| format!("Could not change system audio: {e}"));
         inner.phase = Phase::Recording;
         inner.mic_name = mic_name;
+        inner.transcribe_cancel.store(false, Ordering::SeqCst);
+        inner.live_text.clear();
+        inner.last_pasted = false;
+        inner.recording_dictionary = dict.clone();
+        inner.paste_target = paste_target;
+        inner.live_stop = None;
+        inner.live_task = None;
+        if inner.provider_settings.live_transcription
+            && inner.provider_settings.stt_provider == "local"
+        {
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            inner.live_stop = Some(stop.clone());
+            inner.live_task = Some(crate::live::start(
+                app.clone(),
+                recorder.capture(),
+                dict,
+                stop,
+            ));
+        }
         inner.recorder = Some(recorder);
         inner.last_error = None;
-        inner.last_warning = None;
+        inner.last_warning = output_warning;
     }
 
     // Spawn a polling task that emits audio level + spectrum events while recording.
@@ -1351,7 +1419,17 @@ pub async fn start_recording(app: AppHandle) -> Result<(), String> {
                     break;
                 }
                 match &inner.recorder {
-                    Some(r) => r.snapshot(),
+                    Some(r) => {
+                        if r.error().is_some() {
+                            drop(inner);
+                            let app3 = app2.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = stop_recording(app3).await;
+                            });
+                            break;
+                        }
+                        r.snapshot()
+                    }
                     None => break,
                 }
             };
@@ -1385,6 +1463,9 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
         // task and a second stop request must not observe a missing recorder.
         inner.phase = Phase::Transcribing;
         inner.transcribe_cancel.store(false, Ordering::SeqCst);
+        if let Some(stop) = &inner.live_stop {
+            stop.store(true, Ordering::SeqCst);
+        }
         inner.recorder.take()
     };
     let recorder = match recorder {
@@ -1412,11 +1493,13 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
                 transcribe_recording(app2.clone(), samples, sample_rate, rec_duration).await
             }
             Ok(Err(error)) => {
+                drain_live(&app2).await;
                 set_idle_error(&app2, error.clone());
                 Err(error)
             }
             Err(error) => {
                 let error = format!("Recording task failed: {error}");
+                drain_live(&app2).await;
                 set_idle_error(&app2, error.clone());
                 Err(error)
             }
@@ -1427,6 +1510,21 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
     });
 
     Ok("Transcription started".to_string())
+}
+
+async fn drain_live(app: &AppHandle) {
+    let _ = cancel_transcription(app.clone()).await;
+    let task = {
+        let state = app.state::<AppState>();
+        let mut inner = state.lock();
+        if let Some(stop) = &inner.live_stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+        inner.live_task.take()
+    };
+    if let Some(task) = task {
+        let _ = task.await;
+    }
 }
 
 fn set_idle_error(app: &AppHandle, error: String) {
@@ -1446,6 +1544,29 @@ async fn transcribe_recording(
 ) -> Result<String, String> {
     log::info!("recorded {rec_duration:.1}s of audio");
 
+    // Wait for the one live request that owns the worker, then reuse only committed audio.
+    let (live_task, settings, history_model, dict, paste_target) = {
+        let state = app.state::<AppState>();
+        let mut inner = state.lock();
+        if let Some(stop) = &inner.live_stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+        let settings = inner.provider_settings.clone();
+        let model = selected_transcription_model(&inner, &settings);
+        (
+            inner.live_task.take(),
+            settings,
+            model,
+            inner.recording_dictionary.clone(),
+            inner.paste_target.take(),
+        )
+    };
+    let mut committed = if let Some(task) = live_task {
+        task.await.unwrap_or_default()
+    } else {
+        crate::live::LiveResult::default()
+    };
+
     // Check if cancellation was requested before we even start
     if app
         .state::<AppState>()
@@ -1464,128 +1585,59 @@ async fn transcribe_recording(
         return Err(error);
     }
 
-    let wav_path = temp_wav_path();
-    // Resampling + WAV encoding are CPU/IO bound; keep them off the async
-    // runtime so a long recording cannot block other tasks.
-    let write_result = tauri::async_runtime::spawn_blocking({
-        let wav_path = wav_path.clone();
-        move || {
-            let (samples, sample_rate) = if sample_rate != 16_000 {
-                (crate::audio::resample_to_16k(&samples, sample_rate), 16_000)
-            } else {
-                (samples, sample_rate)
-            };
-            write_wav(&wav_path, &samples, sample_rate)
-        }
-    })
-    .await;
-    let write_result = match write_result {
-        Ok(result) => result,
-        Err(e) => Err(format!("Recording task failed: {e}")),
-    };
-    if let Err(error) = write_result {
-        let _ = std::fs::remove_file(&wav_path);
-        set_idle_error(&app, error.clone());
-        return Err(error);
+    if settings.live_final_pass {
+        committed.offset = 0;
+        committed.text.clear();
     }
-
-    let (settings, history_model) = {
-        let state = app.state::<AppState>();
-        let inner = state.lock();
-        let settings = inner.provider_settings.clone();
-        let model = if settings.stt_provider == "local" {
-            inner
-                .current_model_id
-                .as_deref()
-                .and_then(|id| inner.models.iter().find(|model| model.id == id))
-                .map(|model| model.name.clone())
-                .unwrap_or_else(|| "Local Whisper".into())
-        } else {
-            settings
-                .providers
-                .get(&settings.stt_provider)
-                .map(|config| config.stt_model.clone())
-                .unwrap_or_default()
-        };
-        (settings, model)
-    };
-    let local_transcription = settings.stt_provider == "local";
     let cancelled = app.state::<AppState>().lock().transcribe_cancel.clone();
-
-    // Generate a request ID upfront for local transcription so we can store
-    // it in state and cancel the pending worker request later.
-    let worker_request_id: Option<u64> = if local_transcription {
-        if let Some(worker_arc) = app.try_state::<Arc<worker::Worker>>() {
-            let rid = worker::next_request_id(&worker_arc);
-            set(&app, |i| i.transcribe_request_id = Some(rid));
-            Some(rid)
+    let local_transcription = settings.stt_provider == "local";
+    let result: Result<String, String> = if cancelled.load(Ordering::SeqCst) {
+        Err("Transcription cancelled".into())
+    } else if let Some(error) = committed.failure {
+        Err(error)
+    } else if local_transcription {
+        let offset = committed.offset.min(samples.len());
+        let tail = &samples[offset..];
+        if tail.len() < sample_rate as usize / 5 || !tail.iter().any(|s| s.unsigned_abs() > 64) {
+            Ok(committed.text)
         } else {
-            None
+            let context: String = committed
+                .text
+                .chars()
+                .rev()
+                .take(220)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            crate::live::transcribe_chunk(&app, tail.to_vec(), sample_rate, &dict, &context)
+                .await
+                .map(|text| crate::live::join(&committed.text, &text))
         }
     } else {
-        None
-    };
-
-    // Cancellation can arrive while the WAV is being encoded, before a
-    // request ID exists. Recheck after publishing the ID so it cannot be lost.
-    if app
-        .state::<AppState>()
-        .lock()
-        .transcribe_cancel
-        .load(Ordering::SeqCst)
-    {
-        let _ = std::fs::remove_file(&wav_path);
-        set(&app, |i| i.transcribe_request_id = None);
-        set_idle_error(&app, "Transcription cancelled".to_string());
-        return Err("Transcription cancelled".to_string());
-    }
-
-    let result: Result<String, String> = if local_transcription {
-        // This box's CPU can run at RTF ~15-20, so a long dictation legitimately
-        // takes minutes. Size the timeout from the recorded duration with a wide margin.
-        let timeout = Duration::from_secs(
-            (rec_duration as u64)
-                .saturating_mul(60)
-                .saturating_add(300)
-                .min(3600),
-        );
-        request_with_id(
-            &app,
-            &app.state::<Arc<worker::Worker>>(),
-            json!({"command": "transcribe", "audio_path": wav_path}),
-            timeout,
-            worker_request_id,
-        )
-        .await
-        .map(|msg| {
-            let text = msg
-                .payload
-                .get("text")
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-                .to_string();
-            log::info!(
-                "local transcription: audio={:?}s inference={:?}s rtf={:?}",
-                msg.payload.get("audio_s").and_then(|value| value.as_f64()),
-                msg.payload
-                    .get("inference_s")
-                    .and_then(|value| value.as_f64()),
-                msg.payload.get("rtf").and_then(|value| value.as_f64()),
-            );
-            text
+        let wav_path = temp_wav_path();
+        let path = wav_path.clone();
+        let encoded = tauri::async_runtime::spawn_blocking(move || {
+            let audio = if sample_rate == 16000 {
+                samples
+            } else {
+                crate::audio::resample_to_16k(&samples, sample_rate)
+            };
+            write_wav(&path, &audio, 16000)
         })
-    } else {
-        let _ = app.emit(
-            "vox:transcribe-progress",
-            json!({ "elapsed": 0, "fraction": 0.12 }),
-        );
-        crate::cancellation::run(&cancelled, providers::transcribe(&settings, &wav_path)).await
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        let result = match encoded {
+            Ok(()) => {
+                crate::cancellation::run(&cancelled, providers::transcribe(&settings, &wav_path))
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+        let _ = std::fs::remove_file(&wav_path);
+        result
     };
-
-    let _ = std::fs::remove_file(&wav_path);
-
-    // Clear the stored request ID now that the worker call is done
-    set(&app, |i| i.transcribe_request_id = None);
 
     // Check if the user cancelled while we were waiting
     if app
@@ -1626,47 +1678,57 @@ async fn transcribe_recording(
                     }
                 }
             };
-            // Cancellation during the optional cloud post-processing stage
-            // must never publish the result or overwrite the clipboard.
-            // Serialize publication with cancel_transcription's state update.
-            let st = app.state::<AppState>();
-            let mut inner = st.lock();
-            if inner.transcribe_cancel.load(Ordering::SeqCst) {
-                inner.phase = Phase::Idle;
-                inner.last_error = Some("Transcription cancelled".to_string());
-                inner.last_warning = None;
-                drop(inner);
-                emit_status(&app);
-                return Err("Transcription cancelled".to_string());
+            let text = dict.apply(&text);
+            // Delay before publication, so cancellation during the wait cannot
+            // change the clipboard. Publication and input dispatch share the
+            // cancellation mutex; the next recording cannot interleave with them.
+            if settings.auto_paste && paste_target.is_some() {
+                tokio::time::sleep(Duration::from_millis(settings.paste_delay_ms)).await;
             }
-            if text.trim().is_empty() {
-                let e = "No speech detected in the recording".to_string();
+            let delivery_app = app.clone();
+            let delivery_text = text.clone();
+            let project_id = dict.active_project.clone();
+            let auto_paste = settings.auto_paste;
+            let terminal = settings.paste_terminal;
+            let delivery = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+                let state = delivery_app.state::<AppState>();
+                let mut inner = state.lock();
+                if inner.transcribe_cancel.load(Ordering::SeqCst) {
+                    return Err("Transcription cancelled".into());
+                }
+                if delivery_text.trim().is_empty() { return Err("No speech detected in the recording".into()); }
+                let copied = delivery_app.clipboard().write_text(&delivery_text).is_ok();
+                let mut warning = warning;
+                let mut pasted = false;
+                if copied && auto_paste {
+                    let outcome = if let Some(target) = paste_target {
+                        if delivery_app.clipboard().read_text().ok().as_deref() == Some(&delivery_text) {
+                            crate::paste::paste(&target, terminal)
+                        } else { Err("Clipboard changed before paste".into()) }
+                    } else { Err("No external paste target was available".into()) };
+                    match outcome {
+                        Ok(()) => pasted = true,
+                        Err(reason) => {
+                            let message = format!("Automatic paste was skipped: {reason}. The transcript is still available in HotYap.");
+                            warning = Some(match warning { Some(existing) => format!("{existing} {message}"), None => message });
+                        }
+                    }
+                }
+                inner.last_project_id = project_id;
+                inner.last_text = Some(delivery_text);
+                inner.last_copied = copied;
+                inner.last_pasted = pasted;
+                inner.last_error = None;
+                inner.last_warning = warning;
                 inner.phase = Phase::Idle;
-                inner.last_error = Some(e.clone());
-                drop(inner);
-                emit_status(&app);
-                return Err(e);
+                inner.live_stop = None;
+                inner.live_text.clear();
+                Ok(())
+            }).await.map_err(|e| e.to_string()).and_then(|r| r);
+            if let Err(error) = delivery {
+                set_idle_error(&app, error.clone());
+                return Err(error);
             }
-
-            // Copy to clipboard (the whole point of the app).
-            let copied = match app.clipboard().write_text(&text) {
-                Ok(_) => {
-                    log::info!("transcription copied to clipboard");
-                    true
-                }
-                Err(e) => {
-                    log::error!("clipboard write failed: {e}");
-                    false
-                }
-            };
-
-            inner.phase = Phase::Idle;
-            inner.last_text = Some(text.clone());
-            inner.last_copied = copied;
-            inner.last_error = None;
-            inner.last_warning = warning;
-            drop(inner);
-
             if settings.history_enabled {
                 match app.state::<HistoryStore>().add(
                     text.clone(),
@@ -1997,4 +2059,34 @@ fn png_to_ico(png: &[u8]) -> Vec<u8> {
     ico.extend_from_slice(&22u32.to_le_bytes()); // image data offset
     ico.extend_from_slice(png);
     ico
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn correct_last_transcript(
+    app: AppHandle,
+    original: String,
+    text: String,
+) -> Result<(), String> {
+    if text.trim().is_empty() || text.len() > 250_000 {
+        return Err("Correction is empty or too long".into());
+    }
+    let state = app.state::<AppState>();
+    let mut inner = state.lock();
+    if inner.phase != Phase::Idle || inner.last_text.as_deref() != Some(&original) {
+        return Err("The transcript changed. Reopen the editor.".into());
+    }
+    app.state::<crate::dictionary::DictionaryStore>().learn(
+        &original,
+        &text,
+        inner.last_project_id.clone(),
+    )?;
+    app.clipboard()
+        .write_text(&text)
+        .map_err(|e| e.to_string())?;
+    inner.last_text = Some(text);
+    inner.last_copied = true;
+    inner.last_pasted = false;
+    drop(inner);
+    emit_status(&app);
+    Ok(())
 }

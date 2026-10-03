@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>HotYap needs microphone access to record speech for transcription.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>When automatic paste is enabled, HotYap uses System Events to paste your completed dictation into the active application.</string>
 </dict>
 </plist>

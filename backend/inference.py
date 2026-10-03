@@ -637,7 +637,7 @@ def _decode_wav_16k(audio_path: str):
     return np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
 
 
-def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
+def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None, vocabulary=None, context="", term_fixes=True):
     model = state.get("model")
     if model is None:
         raise RuntimeError("model is not loaded; press 'Start model' first")
@@ -645,6 +645,14 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
     t0 = time.monotonic()
     dev = state.get("device", "cpu")
     text_parts = []
+    # Vocabulary is a hint, not an instruction. Bound the decoder's prompt budget.
+    terms = [s.strip()[:120] for s in (vocabulary or [])[:80] if isinstance(s, str) and s.strip()]
+    hints = ", ".join(terms)[:1400]
+    prompt = INITIAL_PROMPT
+    if hints:
+        prompt += "\nТермины: " + hints
+    if context:
+        prompt += "\nПредыдущая фраза: " + str(context)[-220:]
 
     audio = _decode_wav_16k(audio_path)
 
@@ -661,7 +669,7 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
                 task="transcribe",
                 beam_size=1,
                 condition_on_previous_text=False,
-                initial_prompt=INITIAL_PROMPT,
+                initial_prompt=prompt,
                 verbose=None,
             )
         except Exception as e:
@@ -671,7 +679,9 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
             on_progress(1.0)
         wall = time.monotonic() - t0
         audio_s = len(audio) / 16000.0
-        text = fix_latin_terms(re.sub(r"\s+", " ", result.get("text", "")).strip())
+        text = re.sub(r"\s+", " ", result.get("text", "")).strip()
+        if term_fixes:
+            text = fix_latin_terms(text)
         rtf = wall / audio_s if audio_s > 0 else 0.0
         log(f"transcribe (MLX): audio={audio_s:.1f}s wall={wall:.2f}s rtf={rtf:.2f}")
         return {
@@ -691,7 +701,8 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
             condition_on_previous_text=False,
-            initial_prompt=INITIAL_PROMPT,
+            initial_prompt=prompt,
+            hotwords=hints or None,
         )
         for seg in segments:
             if on_cancel and on_cancel():
@@ -710,7 +721,8 @@ def transcribe(state: dict, audio_path: str, on_progress=None, on_cancel=None):
 
     text = " ".join(text_parts)
     text = re.sub(r"\s+", " ", text).strip()
-    text = fix_latin_terms(text)
+    if term_fixes:
+        text = fix_latin_terms(text)
 
     audio_s = float(info.duration or 0.0)
     rtf = wall / audio_s if audio_s > 0 else 0.0

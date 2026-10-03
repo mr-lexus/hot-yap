@@ -7,9 +7,9 @@ Website: [mr-lexus.github.io/hot-yap](https://mr-lexus.github.io/hot-yap/)
 
 Alpha builds: [GitHub Releases](https://github.com/mr-lexus/hot-yap/releases)
 
-Tauri v2 desktop app for speech-to-text dictation in Russian with embedded English technical terms. Local inference uses faster-whisper + CTranslate2 on Windows, Linux, and Intel macOS, or MLX + Metal on Apple Silicon. A configured cloud provider is optional. The result is copied to the system clipboard; the app never simulates keyboard input — you paste it yourself.
+Tauri v2 desktop app for speech-to-text dictation in Russian with embedded English technical terms. Local inference uses faster-whisper + CTranslate2 on Windows, Linux, and Intel macOS, or MLX + Metal on Apple Silicon. A configured cloud provider is optional. The result is copied to the system clipboard. Optional automatic paste can deliver the final text to the original foreground application; it is disabled by default.
 
-The current release channel is **`0.1.0-alpha.16`**. Windows, Linux, Intel macOS, and Apple Silicon macOS packages are built automatically; installers remain early alpha builds while hardware coverage expands.
+The current release channel is **`0.1.0-alpha.17`**. Windows, Linux, Intel macOS, and Apple Silicon macOS packages are built automatically; installers remain early alpha builds while hardware coverage expands.
 
 ## What it does
 
@@ -104,6 +104,42 @@ When the main window is not focused, the global push-to-talk shortcut opens a sm
 
 If the shortcut is already taken by another app, HotYap keeps running, shows a warning in the UI, and the UI button still works.
 
+## Personal and project dictionaries
+
+Open **Dictionary** in the toolbar. A replacement has a spoken form ("When I say") and an exact written form. Leave the spoken form empty to add a recognition hint. Replacements are case-insensitive, match whole words, run once without cascading, and support Russian and English. Explicit project rules override personal rules. The built-in technical-term defaults remain available and can be overridden.
+
+- Add, edit, disable or delete entries. Origin badges distinguish manual entries, learned corrections and imported project terms.
+- **Edit & teach** on the last transcript saves and copies a correction. Short word/phrase edits become reviewable suggestions by default. Dictionary learning can instead add them automatically or be disabled. HotYap does not observe edits in other applications. Corrections affect the current result; existing history records retain their original text.
+- Add a project by selecting its folder. Scanning extracts source filenames, declaration names and `package.json` dependency names. It respects ignore files, excludes hidden files, dependency/build folders, symlinks and common secret filenames, and is bounded to 2,000 files / 16 MB / 300 candidate terms. Review the candidates before importing. No source files are uploaded or modified.
+- Select the active project in the recording card, or activate it from the dictionary. Personal entries remain active. Each recording freezes its dictionary context at the start; changes apply to subsequent recordings. File transcription uses the dictionary selected when the job starts.
+- Dictionaries are stored locally in `dictionary.json`. Approved terms become bounded prompt hints for local CTranslate2 and MLX models; explicit replacements also apply to cloud transcription and imported files. Approved terms may consequently appear in text sent to an enabled text-processing provider.
+
+## Live dictation and automatic paste
+
+Both options are in **Settings → Dictation & delivery**, and both default to off.
+
+**Live local transcription** starts processing while the microphone is still recording. Completed phrases are cut at quiet pauses, with no forced cuts through continuous speech. At most one inference request runs at a time. Uncommitted previews are never appended to the final output, and preview frequency adapts to slower hardware. Continuous speech uses a bounded rolling draft; an ellipsis indicates that only the recent portion is shown. Audio is retained only for the current job and temporary chunks are deleted.
+
+Choose how to finish:
+
+- **Accuracy: full recording** (default): perform a final full-context decode. This preserves the ordinary model's punctuation behavior but does not promise lower post-recording latency.
+- **Speed: remaining audio**: reuse completed phrases and decode only the remaining audio. This can reduce the wait on suitable hardware, but punctuation at phrase boundaries may differ. Actual acceleration depends on model speed and natural pauses.
+
+In both modes, dictionary replacements and optional AI text processing are finalized before copying/pasting. The text provider runs once for the assembled dictation. Live decoding currently applies to local CTranslate2/MLX models; cloud audio is sent after recording stops.
+
+**Automatic paste** captures the foreground target when a global recording starts and checks it again before sending the paste shortcut. It never activates another app and never sends Enter. If the target changes, clipboard contents change, keys are still held (Windows), permission is denied, or the desktop is unsupported, manual paste remains available. Recording from HotYap's own focused window has no external paste target. A successful status means the OS accepted the shortcut, not that every application confirmed insertion. The transcript remains in the clipboard; other clipboard formats are not restored.
+
+| Platform | Behavior |
+| --- | --- |
+| Windows | Native `SendInput`, Ctrl+V or optional Ctrl+Shift+V. Checks foreground window, process and native focused control. Higher-integrity/elevated apps may reject input. |
+| macOS | Command+V through System Events. Requires Accessibility and, when requested, Automation permission for HotYap. Checks the foreground process and window title/geometry; keep the intended text field focused within that window. |
+| Linux X11 | Uses `xdotool` when installed, checks active window and focused control. Ctrl+V or Ctrl+Shift+V. |
+| Linux Wayland | Automatic paste is unavailable; clipboard fallback is explicit in settings. Global shortcut availability also depends on the compositor. |
+
+The paste delay is configurable from 150 to 2,000 ms. Ctrl+Shift+V is an explicit setting for terminals, not automatic terminal detection. Native focus checks cannot distinguish all browser/editor sub-fields inside a shared native control.
+
+Platform references: [Windows SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput), [macOS Accessibility permission](https://support.apple.com/guide/mac-help/allow-accessibility-apps-to-access-your-mac-mh43185/mac), [xdotool and X11/Wayland limitations](https://github.com/jordansissel/xdotool).
+
 ## GPU / CPU / Apple Silicon
 
 - CUDA is used automatically when CTranslate2 sees a CUDA device: `device=cuda`, preferring `float16` with lower-precision fallbacks.
@@ -125,7 +161,7 @@ nvidia-cudnn-cu12
 ## Known limitations
 
 - Recording uses the system default input device (no selector in this MVP).
-- No auto-paste by design — the app only writes the system clipboard.
+- Automatic paste requires an external foreground target and OS support. Windows elevated apps can block it; macOS requires Accessibility/Automation permission; Linux X11 requires `xdotool`. Wayland uses clipboard-only delivery.
 - Whisper-large-v3-turbo on a CPU without AVX2 is slow (see Troubleshooting); on CUDA or a modern AVX2 CPU, a short dictation takes seconds.
 - Alpha installers are currently unsigned. Windows SmartScreen and macOS Gatekeeper warnings are expected.
 - Linux, Windows, and both macOS architectures are built in the release matrix. Microphone permissions, global shortcuts, and real-model performance still need coverage across more physical Mac hardware.
@@ -200,3 +236,16 @@ See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the complete Pages, release, 
 
 - Temporary WAV files are deleted after each transcription (including on errors).
 - No telemetry. Text-only transcription history is opt-in, disabled by default, and stored in the app data directory; audio is never retained in history. Turning history off stops new entries without deleting existing ones, which remain available for explicit deletion. In local mode, imported media and microphone recordings stay on the device. In cloud mode, HotYap extracts imported audio locally, sends bounded audio chunks only to the selected speech-to-text provider, and sends the resulting text to the selected post-processing provider only when that optional stage is enabled. Temporary normalized audio and chunks are deleted after success, cancellation, and errors.
+
+
+### Microphone, preview, and desktop behavior
+
+Settings includes independent controls for live decoding and its preview. **Show dictation preview** hides/shows provisional text in both the main window and overlay; hiding it does not disable processing during speech.
+
+- **Microphone:** Automatic resolves the current system input at the start of each recording. An explicit input is persisted using CPAL's device ID. A disconnected selected input produces an error instead of silently switching sources. Refresh the list after connecting a device; returning to the window also refreshes it.
+- **Test microphone:** a local level meter using the same capture path as dictation, with a native 15-second deadline. Stop, change input, close settings, or start dictation to release the test microphone. The sample buffer is discarded and is never sent for transcription.
+- **System sound:** Do nothing (default), mute, or lower to 20% of the current output level during recording. Windows uses Core Audio endpoint controls, macOS uses Core Audio HAL controls, and Linux uses `pactl` with PulseAudio or PipeWire's PulseAudio server. The original output device and channel levels are retained. Normal stop, input failure, worker failure, and graceful quit restore the changed setting unless the user has changed that setting meanwhile. An unavailable output control warns without preventing dictation. Device removal and forced process termination can prevent restoration. Some external outputs lack software volume/mute controls.
+- **Launch at system startup:** opt-in, applied on Save using the official Tauri autostart plugin (Windows user startup registry, macOS LaunchAgent, Linux desktop autostart). The switch reads the OS registration when opening Settings. Registration errors are shown; failed settings persistence rolls the registration back. Enable in the installed app so the registered executable has a stable location.
+- **Close window to system tray:** on by default, preserving existing behavior. Turn it off to make the window close button stop active capture/transcription and quit. Quit in the tray menu always exits.
+
+Native microphone access, device changes, OS startup, and sound restoration require hardware/platform smoke tests in addition to the automated logic and browser UI checks.

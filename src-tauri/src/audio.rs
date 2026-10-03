@@ -1,12 +1,20 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 
 const MAX_RECORDING_SECONDS: usize = 30 * 60;
 const MAX_RECORDING_BUFFER_BYTES: usize = 256 * 1024 * 1024;
+
+static INPUT_IN_USE: AtomicBool = AtomicBool::new(false);
+struct InputLease;
+impl Drop for InputLease {
+    fn drop(&mut self) {
+        INPUT_IN_USE.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Microphone recorder built on cpal.
 ///
@@ -22,9 +30,18 @@ pub struct Recorder {
     error: Arc<Mutex<Option<String>>>,
     mic_name: String,
     level: Arc<AtomicUsize>,
+    output_guard: Option<crate::system_audio::OutputGuard>,
+    _lease: InputLease,
 }
 
 impl Recorder {
+    pub fn capture(&self) -> AudioCapture {
+        AudioCapture {
+            data: self.data.clone(),
+            channels: self.channels as usize,
+            sample_rate: self.sample_rate,
+        }
+    }
     pub fn mic_name(&self) -> Option<String> {
         if self.mic_name.is_empty() {
             None
@@ -33,11 +50,12 @@ impl Recorder {
         }
     }
 
-    pub fn start() -> Result<Recorder, String> {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| "No default input device found (microphone unavailable)".to_string())?;
+    pub fn start(selected: Option<&str>) -> Result<Recorder, String> {
+        INPUT_IN_USE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "Microphone is already in use by HotYap".to_string())?;
+        let lease = InputLease;
+        let device = crate::microphone::resolve_device(selected)?;
         let config = device
             .default_input_config()
             .map_err(|e| format!("Cannot read microphone input config: {e}"))?;
@@ -90,6 +108,8 @@ impl Recorder {
             error,
             mic_name,
             level,
+            output_guard: None,
+            _lease: lease,
         })
     }
 
@@ -98,6 +118,7 @@ impl Recorder {
         // Stop callbacks before reading their error and sample buffers so a
         // final callback cannot race with the snapshot below.
         drop(self.stream);
+        drop(self.output_guard);
         let mic_error = self
             .error
             .lock()
@@ -129,6 +150,15 @@ impl Recorder {
         Ok((mono, self.sample_rate, duration))
     }
 
+    pub fn control_output(&mut self, mode: crate::providers::SystemAudio) -> Result<(), String> {
+        self.output_guard = crate::system_audio::OutputGuard::start(mode)?;
+        Ok(())
+    }
+
+    pub fn error(&self) -> Option<String> {
+        self.error.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
     /// Snapshot the current audio level and a cheap activity meter.
     pub fn snapshot(&self) -> (f32, Vec<f32>) {
         let lv = self.level.load(Ordering::Relaxed) as f32 / 32768.0;
@@ -139,6 +169,38 @@ impl Recorder {
             })
             .collect();
         (lv, sp)
+    }
+}
+
+#[derive(Clone)]
+pub struct AudioCapture {
+    data: Arc<Mutex<Vec<i16>>>,
+    channels: usize,
+    pub sample_rate: u32,
+}
+impl AudioCapture {
+    pub fn tail(&self, seconds: usize) -> (Vec<i16>, usize) {
+        let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        let total = data.len() / self.channels;
+        let start = total.saturating_sub(self.sample_rate as usize * seconds);
+        let samples = data[start * self.channels..]
+            .chunks_exact(self.channels)
+            .map(|frame| {
+                (frame.iter().map(|&s| s as i64).sum::<i64>() / self.channels as i64) as i16
+            })
+            .collect();
+        (samples, total)
+    }
+    pub fn from(&self, start: usize) -> Vec<i16> {
+        let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        data.get(start.saturating_mul(self.channels)..)
+            .unwrap_or_default()
+            .chunks_exact(self.channels)
+            .take(self.sample_rate as usize * 60)
+            .map(|frame| {
+                (frame.iter().map(|&s| s as i64).sum::<i64>() / self.channels as i64) as i16
+            })
+            .collect()
     }
 }
 

@@ -98,6 +98,8 @@ fn default_model_backend() -> String {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct StatusReport {
+    pub live_text: String,
+    pub last_pasted: bool,
     pub model_status: ModelStatus,
     pub model_error: Option<String>,
     pub engine_status: EngineStatus,
@@ -134,6 +136,13 @@ pub struct StatusReport {
 }
 
 pub struct AppStateInner {
+    pub live_text: String,
+    pub last_pasted: bool,
+    pub live_stop: Option<Arc<AtomicBool>>,
+    pub live_task: Option<tokio::sync::oneshot::Receiver<crate::live::LiveResult>>,
+    pub recording_dictionary: crate::dictionary::Dictionary,
+    pub last_project_id: Option<String>,
+    pub paste_target: Option<crate::paste::Target>,
     pub model_status: ModelStatus,
     pub model_error: Option<String>,
     pub engine_status: EngineStatus,
@@ -218,6 +227,8 @@ impl AppStateInner {
             self.engine_status == EngineStatus::Ready,
         );
         StatusReport {
+            live_text: self.live_text.clone(),
+            last_pasted: self.last_pasted,
             model_status: self.model_status,
             model_error: self.model_error.clone(),
             engine_status: self.engine_status,

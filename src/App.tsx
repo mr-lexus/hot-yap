@@ -4,6 +4,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { type CudaRuntimeReport, type ProviderSettings, type StatusReport } from "./types";
+import DictionaryModal from "./DictionaryModal";
+import type { DictionaryData } from "./types";
 import ModelManager from "./ModelManager";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icons";
@@ -58,6 +60,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [fileTranscriberOpen, setFileTranscriberOpen] = useState(false);
+  const [dictionaryOpen, setDictionaryOpen] = useState(false);
+  const [dictionary, setDictionary] = useState<DictionaryData | null>(null);
+  const [editText, setEditText] = useState<string | null>(null);
+  const [editOriginal, setEditOriginal] = useState("");
+  useEffect(() => { void invoke<DictionaryData>("get_dictionary").then(setDictionary).catch(() => {}); }, []);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const [accent, setAccent] = useState<Accent>(savedAccent);
   const [iconPreference, setIconPreference] = useState<IconPreference>(savedIconPreference);
@@ -359,6 +366,7 @@ export default function App() {
             <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
             <span className="topbar-action-label">{t(`theme.${theme === "dark" ? "light" : "dark"}`)}</span>
           </button>
+          <button className="theme-toggle topbar-action" title={t("dictionary.title")} aria-label={t("dictionary.title")} onClick={() => setDictionaryOpen(true)}><Icon name="book" size={14} /><span>{t("dictionary.title")}</span></button>
           <button className="theme-toggle topbar-action" title={t("history.button")} aria-label={t("history.button")} onClick={() => setHistoryOpen(true)}>
             <Icon name="history" size={14} />
             <span className="topbar-action-label">{t("history.button")}</span>
@@ -430,6 +438,7 @@ export default function App() {
               </span>
             </div>
 
+            <div className="project-picker"><Icon name="folder" size={14} /><select aria-label={t("dictionary.activeProject")} value={dictionary?.active_project ?? ""} disabled={!dictionary || busy || status.phase !== "idle"} onChange={e => { if (dictionary) void run(async () => setDictionary(await invoke<DictionaryData>("save_dictionary", { dictionary: { ...dictionary, active_project: e.target.value || null } }))); }}><option value="">{t("dictionary.personalOnly")}</option>{dictionary?.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="modal-icon-button" aria-label={t("dictionary.title")} onClick={() => setDictionaryOpen(true)}><Icon name="book" size={14} /></button></div>
             <div className="recording-body">
               <button
                 className={`btn btn-record ${recording && !releasingToTalk ? "recording" : ""}`}
@@ -508,14 +517,18 @@ export default function App() {
               <div className="panel-title-lockup"><span className="panel-icon"><Icon name="clipboard" size={15} /></span><h2>{t("transcript.title")}</h2></div>
               <span className="transcript-meta">{t("transcript.clipboardOutput")}</span>
             </div>
-            {status.last_text ? (
-              <>
-                <p className="transcript">{status.last_text}</p>
-                <p className={`copied ${status.last_copied ? "ok" : "fail"}`}>
-                  {status.last_copied ? t("transcript.copied") : t("transcript.copyFailed")}
-                </p>
-              </>
-            ) : <p className="transcript empty">{t("transcript.empty")}</p>}
+            {status.phase !== "idle" && status.provider_settings.live_transcription && status.provider_settings.dictation_preview && status.stt_provider === "local" ? <>
+              <div className="live-label">{t("dictationFlow.preview")}</div>
+              <p className="transcript live-transcript" role="status">{status.live_text || t("dictationFlow.listening")}</p>
+              <p className="transcript-meta">{t("dictationFlow.provisional")}</p>
+            </> : status.last_text ? <>
+              {editText !== null ? <>
+                <textarea className="transcript-editor" aria-label={t("dictionary.editTranscript")} value={editText} onChange={e => setEditText(e.target.value)} disabled={busy || status.phase !== "idle"} />
+                <div className="transcript-edit-actions"><button className="btn btn-primary btn-sm" disabled={busy || status.phase !== "idle" || !editText.trim()} onClick={() => void run(async () => { await invoke("correct_last_transcript", { original: editOriginal, text: editText }); setEditText(null); setDictionary(await invoke<DictionaryData>("get_dictionary")); })}>{t("dictionary.saveCorrection")}</button><button className="btn btn-ghost btn-sm" onClick={() => setEditText(null)}>{t("history.cancel")}</button><span>{t("dictionary.correctionHint")}</span></div>
+              </> : <><p className="transcript">{status.last_text}</p><div className="transcript-edit-actions"><button className="btn btn-ghost btn-sm" disabled={busy || status.phase !== "idle"} onClick={() => { setEditOriginal(status.last_text ?? ""); setEditText(status.last_text ?? ""); }}><Icon name="edit" size={13} />{t("dictionary.editTranscript")}</button></div></>}
+              <p className={`copied ${status.last_copied ? "ok" : "fail"}`}>{status.last_pasted ? t("dictationFlow.pasted") : status.last_copied ? t("transcript.copied") : t("transcript.copyFailed")}</p>
+            </> : <p className="transcript empty">{t("transcript.empty")}</p>}
+
           </section>
         </main>
 
@@ -624,6 +637,7 @@ export default function App() {
               : t("privacy")}
         </footer>
 
+        <DictionaryModal open={dictionaryOpen} onClose={() => setDictionaryOpen(false)} onChanged={setDictionary} />
         <ModelManager
         open={modelManagerOpen}
         onClose={() => setModelManagerOpen(false)}

@@ -41,6 +41,8 @@ export interface WorkerInstallReport {
 }
 
 export interface StatusReport {
+  live_text: string;
+  last_pasted: boolean;
   model_status: ModelStatus;
   model_error: string | null;
   engine_status: EngineStatus;
@@ -84,6 +86,16 @@ export interface ProviderConfig {
 }
 
 export interface ProviderSettings {
+  live_transcription: boolean;
+  live_final_pass: boolean;
+  dictation_preview: boolean;
+  input_device: string | null;
+  system_audio: "nothing" | "mute" | "duck";
+  launch_at_startup: boolean;
+  close_to_tray: boolean;
+  auto_paste: boolean;
+  paste_terminal: boolean;
+  paste_delay_ms: number;
   stt_provider: string;
   text_provider: string;
   postprocess_prompt: string;
@@ -91,6 +103,25 @@ export interface ProviderSettings {
   local_device: string;
   providers: Record<string, ProviderConfig>;
 }
+
+export interface DictionaryEntry {
+  id: string;
+  heard: string;
+  written: string;
+  project_id: string | null;
+  origin: "manual" | "learned" | "project";
+  enabled: boolean;
+}
+export interface DictionaryProject { id: string; name: string; path: string }
+export interface DictionaryData {
+  revision: number;
+  entries: DictionaryEntry[];
+  suggestions: DictionaryEntry[];
+  projects: DictionaryProject[];
+  active_project: string | null;
+  learning: "off" | "suggest" | "auto";
+}
+export interface PasteSupport { platform: string; available: boolean; reason: string }
 
 export interface HistoryEntry {
   id: string;

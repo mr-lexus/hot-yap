@@ -209,3 +209,6 @@ html.overlay-page body::before { display: none; }
   .overlay-progress svg,
   .overlay-result.success { animation: none; }
 }
+
+.ptt-overlay.has-live-text { height: auto; min-height: 135px; width: 400px; grid-template-columns: 56px minmax(0, 1fr) 76px; }
+.overlay-live-text { grid-column: 1 / -1; font-size: 12px; line-height: 1.6; opacity: .86; border-top: 1px solid var(--ring-color); padding: 9px 7px 5px; max-height: 82px; overflow: hidden; overflow-wrap: anywhere; }

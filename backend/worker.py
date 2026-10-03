@@ -352,6 +352,8 @@ def cmd_transcribe(req):
                 state, audio_path,
                 on_progress=_on_progress,
                 on_cancel=state["cancel_event"].is_set,
+                **({"vocabulary": req.get("vocabulary", []), "context": req.get("context", ""), "term_fixes": req.get("term_fixes", True)}
+                   if "vocabulary" in req or "context" in req or "term_fixes" in req else {}),
             )
         except Exception as e:
             log(f"transcribe failed:\n{traceback.format_exc()}")

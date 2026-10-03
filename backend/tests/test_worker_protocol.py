@@ -73,6 +73,16 @@ class WorkerProtocolTests(unittest.TestCase):
         self.send({"id": 1, "command": "status"})
         self.assertEqual(self.response(1)["event"], "status")
 
+    def test_live_chunks_forward_context_and_finish_before_next_chunk(self):
+        for rid in (1, 2, 3):
+            self.send({"id": rid, "command": "transcribe", "audio_path": f"chunk-{rid}",
+                       "vocabulary": ["Supabase", "useAuth"], "context": "Предыдущая фраза,", "term_fixes": False})
+            result = self.response(rid)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["text"], f"chunk-{rid}")
+            self.assertEqual(result["test_options"]["vocabulary"], ["Supabase", "useAuth"])
+            self.assertFalse(result["test_options"]["term_fixes"])
+
     def test_media_preparation_uses_the_background_protocol(self):
         self.send({
             "id": 1,
