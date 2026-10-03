@@ -187,6 +187,13 @@ pub fn worker_install_path(data_dir: &Path) -> PathBuf {
 
 /// Whether a runnable local worker is already available on this machine
 /// (env override, bundled next to the exe, downloaded to app data, or dev venv).
+fn worker_matches_release(path: &Path, expected: Option<&str>) -> bool {
+    path.is_file()
+        && expected.is_none_or(|hash| {
+            sha256_file(path).is_ok_and(|actual| actual.eq_ignore_ascii_case(hash.trim()))
+        })
+}
+
 pub fn worker_installed(data_dir: &Path) -> bool {
     if std::env::var_os("VOXSHIFT_WORKER").is_some()
         || std::env::var_os("VOXSHIFT_PYTHON").is_some()
@@ -196,13 +203,13 @@ pub fn worker_installed(data_dir: &Path) -> bool {
     let bundled = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.join(worker_exe_name())));
-    if bundled.map(|p| p.is_file()).unwrap_or(false) {
+    if bundled.is_some_and(|p| worker_matches_release(&p, worker_sha256())) {
         return true;
     }
-    if worker_install_path(data_dir).is_file() {
+    if worker_matches_release(&worker_install_path(data_dir), worker_sha256()) {
         return true;
     }
-    python_path().is_ok()
+    worker_sha256().is_none() && python_path().is_ok()
 }
 
 fn worker_launch(data_dir: &Path) -> Result<WorkerLaunch, String> {
@@ -220,11 +227,11 @@ fn worker_launch(data_dir: &Path) -> Result<WorkerLaunch, String> {
         });
     }
 
-    // Prefer the downloaded worker over a stale copy next to the exe: a
-    // bundled worker from an older release would otherwise win and never be
-    // updated (see worker_installed for the same ordering).
+    // A new installer must not silently reuse a worker from an older release.
+    // Both cached and bundled copies must match this build's worker checksum.
+    // Explicit developer environment overrides above remain intentional.
     let installed = worker_install_path(data_dir);
-    if installed.is_file() {
+    if worker_matches_release(&installed, worker_sha256()) {
         return Ok(WorkerLaunch {
             program: installed,
             script: None,
@@ -234,13 +241,16 @@ fn worker_launch(data_dir: &Path) -> Result<WorkerLaunch, String> {
     let bundled = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.join(worker_exe_name())));
-    if let Some(program) = bundled.filter(|path| path.is_file()) {
+    if let Some(program) = bundled.filter(|path| worker_matches_release(path, worker_sha256())) {
         return Ok(WorkerLaunch {
             program,
             script: None,
         });
     }
 
+    if worker_sha256().is_some() {
+        return Err("The local engine is missing or belongs to another release. Install the matching engine from the Engine panel.".into());
+    }
     Ok(WorkerLaunch {
         program: python_path()?,
         script: Some(worker_script()),
@@ -911,6 +921,24 @@ mod tests {
         assert!(!sanitized.contains("private meeting"));
         assert!(!sanitized.contains("hotyap.wav"));
         assert_eq!(sanitized.matches("<redacted>").count(), 2);
+    }
+
+    #[test]
+    fn cached_worker_must_match_the_current_release() {
+        let path =
+            std::env::temp_dir().join(format!("hotyap-worker-check-{}.bin", std::process::id()));
+        std::fs::write(&path, b"current engine").unwrap();
+        let expected = sha256_file(&path).unwrap();
+        assert!(worker_matches_release(&path, Some(&expected)));
+        assert!(worker_matches_release(
+            &path,
+            Some(&expected.to_uppercase())
+        ));
+        std::fs::write(&path, b"old or corrupted engine").unwrap();
+        assert!(!worker_matches_release(&path, Some(&expected)));
+        assert!(worker_matches_release(&path, None));
+        std::fs::remove_file(&path).unwrap();
+        assert!(!worker_matches_release(&path, None));
     }
 
     #[test]

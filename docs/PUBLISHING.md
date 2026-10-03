@@ -4,7 +4,7 @@
 
 ## 1. Текущий статус
 
-Канал выпуска: **`0.1.0-alpha.17`**.
+Канал выпуска: **`0.1.0-alpha.18`**.
 
 Это alpha, а не beta, по следующим причинам:
 
@@ -14,7 +14,7 @@
 - установщики пока не подписаны сертификатами Windows и Apple;
 - API и формат локальных данных ещё могут меняться.
 
-Версия приложения внутри `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` и `backend/worker.py` остаётся `0.1.0`. Суффикс канала находится в Git-теге `v0.1.0-alpha.17` и имени GitHub prerelease.
+Версия приложения внутри `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` и `backend/worker.py` остаётся `0.1.0`. Суффикс канала находится в Git-теге `v0.1.0-alpha.18` и имени GitHub prerelease.
 
 ## 2. Публичные ссылки
 
@@ -208,13 +208,13 @@ backend/worker.py
 Первый релиз:
 
 ```bash
-git tag v0.1.0-alpha.17
-git push origin v0.1.0-alpha.17
+git tag v0.1.0-alpha.18
+git push origin v0.1.0-alpha.18
 ```
 
-Тег должен соответствовать шаблону `v*-alpha.*`. Workflow создаёт draft prerelease и добавляет пакеты по мере завершения четырёх matrix jobs. После успешных проверок и проверки всех 11 assets опубликовать его: `gh release edit v0.1.0-alpha.17 --draft=false --prerelease --notes-file docs/RELEASE_ALPHA_16.md`.
+Тег должен соответствовать шаблону `v*-alpha.*`. Workflow создаёт draft prerelease и добавляет пакеты по мере завершения четырёх matrix jobs. После успешных проверок и проверки всех 11 assets опубликовать его: `gh release edit v0.1.0-alpha.18 --draft=false --prerelease --notes-file docs/RELEASE_ALPHA_16.md`.
 
-Альтернативный путь: открыть `Actions → Build alpha release → Run workflow`, указать `v0.1.0-alpha.17` и запустить вручную.
+Альтернативный путь: открыть `Actions → Build alpha release → Run workflow`, указать `v0.1.0-alpha.18` и запустить вручную.
 
 Перед анонсом проверить:
 

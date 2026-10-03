@@ -9,7 +9,9 @@ Alpha builds: [GitHub Releases](https://github.com/mr-lexus/hot-yap/releases)
 
 Tauri v2 desktop app for speech-to-text dictation in Russian with embedded English technical terms. Local inference uses faster-whisper + CTranslate2 on Windows, Linux, and Intel macOS, or MLX + Metal on Apple Silicon. A configured cloud provider is optional. The result is copied to the system clipboard. Optional automatic paste can deliver the final text to the original foreground application; it is disabled by default.
 
-The current release channel is **`0.1.0-alpha.17`**. Windows, Linux, Intel macOS, and Apple Silicon macOS packages are built automatically; installers remain early alpha builds while hardware coverage expands.
+When upgrading, use **Install / update engine** if prompted: the cached engine must match the new installer. Existing models and settings are preserved.
+
+The current release channel is **`0.1.0-alpha.18`**. Windows, Linux, Intel macOS, and Apple Silicon macOS packages are built automatically; installers remain early alpha builds while hardware coverage expands.
 
 ## What it does
 

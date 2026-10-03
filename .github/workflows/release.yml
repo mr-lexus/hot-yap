@@ -281,7 +281,7 @@ jobs:
           releaseBody: |
             HotYap alpha: personal and project dictionaries, live local dictation with optional preview, automatic paste, microphone controls, and desktop integration.
 
-            The local transcription engine is downloaded automatically on first use, and speech models are downloaded separately. These builds are currently unsigned; operating-system warnings are expected.
+            Install or update the matching local engine from the Engine panel. Speech models download separately and remain available across upgrades. These builds are currently unsigned; operating-system warnings are expected.
 
             Linux: DEB, RPM, AppImage. Windows: MSI, NSIS. macOS: DMG for Intel and Apple Silicon.
           releaseDraft: true

@@ -67,8 +67,8 @@
     "loading": "Loading…",
     "unload": "Unload",
     "restart": "Restart",
-    "notInstalled": "The local transcription engine is not installed yet.",
-    "download": "Download engine",
+    "notInstalled": "Local recognition needs the engine matching this HotYap release. Install or update it; downloaded models are preserved.",
+    "download": "Install / update engine",
     "downloading": "Downloading engine {{progress}}%",
     "retry": "Retry download",
     "downloadFailed": "Engine download failed: {{error}}"

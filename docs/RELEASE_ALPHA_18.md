@@ -1,6 +1,4 @@
-# HotYap v0.1.0-alpha.17 (unpublished candidate)
-
-This build was stopped before publication to fix cached-engine upgrades. The published candidate is documented in [RELEASE_ALPHA_18.md](RELEASE_ALPHA_18.md).
+# HotYap v0.1.0-alpha.18
 
 ## New
 
@@ -12,6 +10,10 @@ This build was stopped before publication to fix cached-engine upgrades. The pub
 - System sound during dictation: unchanged, muted, or reduced to 20% of the current level, with restoration and respect for manual adjustments.
 - Launch at sign-in and configurable close-to-tray behavior.
 - Responsive Russian/English settings, dictionary management, and improved small-window layout.
+
+## Reliable upgrades
+
+Cached and bundled engines are checked against the worker checksum embedded in the installer. An outdated or corrupted engine is not started; the Engine panel offers to install the matching release. Downloaded speech models and existing settings are preserved.
 
 ## Reliability and defaults
 
