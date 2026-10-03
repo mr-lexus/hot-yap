@@ -51,7 +51,7 @@ function fixture(lang) {
     await import('/src/main.tsx');
   `;
 }
-(async()=>{
+async function captureGallery(){
   const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH}:{})});
   try {
     for(const lang of ['en','ru']) {
@@ -92,4 +92,6 @@ function fixture(lang) {
       await page.close();
     }
   } finally { await browser.close(); }
-})().catch(error=>{console.error(error);process.exitCode=1});
+}
+module.exports = { fixture };
+if (require.main === module) captureGallery().catch(error=>{console.error(error);process.exitCode=1});
