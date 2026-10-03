@@ -68,7 +68,7 @@
     <meta property="og:url" content="https://mr-lexus.github.io/hot-yap/" />
     <meta
       property="og:image"
-      content="https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app.png"
+      content="https://mr-lexus.github.io/hot-yap/landing/gallery/live-en.png"
     />
     <meta property="og:image:width" content="1120" />
     <meta property="og:image:height" content="768" />
@@ -84,7 +84,7 @@
     />
     <meta
       name="twitter:image"
-      content="https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app.png"
+      content="https://mr-lexus.github.io/hot-yap/landing/gallery/live-en.png"
     />
     <script type="application/ld+json">
       {
@@ -95,12 +95,12 @@
         "applicationCategory": "UtilitiesApplication",
         "applicationSubCategory": "Voice dictation and speech recognition",
         "operatingSystem": "Linux, Windows, macOS",
-        "softwareVersion": "0.1.0-alpha.1",
+        "softwareVersion": "0.1.0-alpha.17",
         "description": "A local-first desktop voice dictation app for Russian speech with embedded English technical terms.",
         "url": "https://mr-lexus.github.io/hot-yap/",
-        "downloadUrl": "https://github.com/mr-lexus/hot-yap/releases",
+        "downloadUrl": "https://github.com/mr-lexus/hot-yap/releases/tag/v0.1.0-alpha.17",
         "codeRepository": "https://github.com/mr-lexus/hot-yap",
-        "image": "https://mr-lexus.github.io/hot-yap/landing/screenshots/hotyap-app.png",
+        "image": "https://mr-lexus.github.io/hot-yap/landing/gallery/live-en.png",
         "inLanguage": ["en", "ru"],
         "featureList": [
           "Local faster-whisper transcription",
@@ -128,7 +128,7 @@
         >
         <div class="nav-links">
           <a href="#features">Overview</a><a href="#how">How it works</a
-          ><a href="#faq">FAQ</a>
+          ><a href="#gallery">Gallery</a><a href="#faq">FAQ</a>
         </div>
         <div class="nav-end">
           <div class="locale-switch" aria-label="Language">
@@ -253,31 +253,46 @@
           </article>
         </div>
       </section>
-      <section class="product-proof" aria-labelledby="product-title">
-        <div class="proof-copy">
-          <p class="eyebrow">02 / YOUR NEXT DESKTOP TOOL</p>
-          <h2 id="product-title">Less typing.<br /><em>More doing.</em></h2>
-          <p>
-            A task for a colleague, a message for your team or a prompt for an
-            AI assistant. Say it, then paste the transcript where you work.
-          </p>
-          <a class="text-link" href="#how">See how it works ↗</a>
+      <section class="gallery-section shell" id="gallery" aria-labelledby="gallery-title" data-gallery>
+        <div class="gallery-heading"><div><p class="eyebrow">INSIDE HOT/YAP · ALPHA.17</p><h2 id="gallery-title">A closer look.<br /><em>Your next workflow.</em></h2><p class="gallery-intro">Six ways to work, two themes, and controls that fit your day.</p></div>
+          <div class="gallery-navigation"><span data-gallery-counter aria-live="polite">01 / 06</span><button type="button" data-gallery-prev aria-label="Previous screenshot">←</button><button type="button" data-gallery-next aria-label="Next screenshot">→</button></div>
         </div>
-        <figure>
-          <a
-            class="app-preview"
-            href="./landing/screenshots/hotyap-app.png"
-            data-lightbox
-            data-lightbox-caption="HotYap desktop application"
-            ><img
-              src="./assets/screenshots/hotyap-app.webp"
-              alt="HotYap desktop application interface"
-              width="1120"
-              height="768"
-              loading="lazy"
-          /></a>
-          <figcaption>The HotYap desktop app · Expand ↗</figcaption>
-        </figure>
+        <div class="gallery-slides">
+          <figure class="gallery-slide" id="gallery-slide-live" role="tabpanel" aria-labelledby="gallery-tab-live" tabindex="0">
+            <a class="gallery-image" href="./landing/gallery/live-en.png" data-lightbox data-lightbox-caption="See your words as you speak. Local models can process phrases during dictation. Show a provisional preview, then choose a full-context final pass or faster completion." aria-label="Expand: Live dictation"><img src="./landing/gallery/live-en.png" alt="HotYap — Live dictation" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">01</span><div><p class="gallery-variant">Dark · amber</p><h3>See your words as you speak.</h3><p>Local models can process phrases during dictation. Show a provisional preview, then choose a full-context final pass or faster completion.</p></div></figcaption>
+          </figure>
+          <figure class="gallery-slide" id="gallery-slide-dictionary" role="tabpanel" aria-labelledby="gallery-tab-dictionary" tabindex="0" hidden>
+            <a class="gallery-image" href="./landing/gallery/dictionary-en.png" data-lightbox data-lightbox-caption="Your words, your spelling. Keep names and technical terms consistent with replacement rules. Add them yourself, review suggestions from your edits, or enable automatic learning." aria-label="Expand: Personal dictionary"><img src="./landing/gallery/dictionary-en.png" alt="HotYap — Personal dictionary" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">02</span><div><p class="gallery-variant">Personal vocabulary</p><h3>Your words, your spelling.</h3><p>Keep names and technical terms consistent with replacement rules. Add them yourself, review suggestions from your edits, or enable automatic learning.</p></div></figcaption>
+          </figure>
+          <figure class="gallery-slide" id="gallery-slide-project" role="tabpanel" aria-labelledby="gallery-tab-project" tabindex="0" hidden>
+            <a class="gallery-image" href="./landing/gallery/project-en.png" data-lightbox data-lightbox-caption="A different context for every project. Switch between project dictionaries. Review terms found in source files before adding them; project rules take priority over your personal dictionary." aria-label="Expand: Project vocabulary"><img src="./landing/gallery/project-en.png" alt="HotYap — Project vocabulary" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">03</span><div><p class="gallery-variant">Review before adding</p><h3>A different context for every project.</h3><p>Switch between project dictionaries. Review terms found in source files before adding them; project rules take priority over your personal dictionary.</p></div></figcaption>
+          </figure>
+          <figure class="gallery-slide" id="gallery-slide-audio" role="tabpanel" aria-labelledby="gallery-tab-audio" tabindex="0" hidden>
+            <a class="gallery-image" href="./landing/gallery/audio-en.png" data-lightbox data-lightbox-caption="Your microphone. Your sound. Choose the system microphone or a specific device, test its signal locally, and keep system sound unchanged, lowered, or muted while dictating." aria-label="Expand: Microphone &amp; sound"><img src="./landing/gallery/audio-en.png" alt="HotYap — Microphone &amp; sound" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">04</span><div><p class="gallery-variant">Light · blue</p><h3>Your microphone. Your sound.</h3><p>Choose the system microphone or a specific device, test its signal locally, and keep system sound unchanged, lowered, or muted while dictating.</p></div></figcaption>
+          </figure>
+          <figure class="gallery-slide" id="gallery-slide-workflow" role="tabpanel" aria-labelledby="gallery-tab-workflow" tabindex="0" hidden>
+            <a class="gallery-image" href="./landing/gallery/workflow-en.png" data-lightbox data-lightbox-caption="Tune what happens after you speak. Control the preview, finalization, and optional paste into the original active application. Platform checks keep a clipboard fallback available." aria-label="Expand: Dictation &amp; delivery"><img src="./landing/gallery/workflow-en.png" alt="HotYap — Dictation &amp; delivery" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">05</span><div><p class="gallery-variant">Optional automation</p><h3>Tune what happens after you speak.</h3><p>Control the preview, finalization, and optional paste into the original active application. Platform checks keep a clipboard fallback available.</p></div></figcaption>
+          </figure>
+          <figure class="gallery-slide" id="gallery-slide-light" role="tabpanel" aria-labelledby="gallery-tab-light" tabindex="0" hidden>
+            <a class="gallery-image" href="./landing/gallery/light-en.png" data-lightbox data-lightbox-caption="A lighter space for your thoughts. Switch between light and dark themes, choose from six accent colors, and keep the same focused dictation workflow." aria-label="Expand: Make it yours"><img src="./landing/gallery/light-en.png" alt="HotYap — Make it yours" width="1680" height="1200" loading="lazy" /><span class="gallery-expand" aria-hidden="true">Expand ↗</span></a>
+            <figcaption><span class="gallery-index">06</span><div><p class="gallery-variant">Light · blue</p><h3>A lighter space for your thoughts.</h3><p>Switch between light and dark themes, choose from six accent colors, and keep the same focused dictation workflow.</p></div></figcaption>
+          </figure>
+        </div>
+        <div class="gallery-tabs" role="tablist" aria-label="HotYap scenarios">
+          <button type="button" id="gallery-tab-live" role="tab" aria-controls="gallery-slide-live" aria-selected="true" tabindex="0" data-gallery-tab><img src="./landing/gallery/live-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>01</small>Live dictation</span></button>
+          <button type="button" id="gallery-tab-dictionary" role="tab" aria-controls="gallery-slide-dictionary" aria-selected="false" tabindex="-1" data-gallery-tab><img src="./landing/gallery/dictionary-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>02</small>Personal dictionary</span></button>
+          <button type="button" id="gallery-tab-project" role="tab" aria-controls="gallery-slide-project" aria-selected="false" tabindex="-1" data-gallery-tab><img src="./landing/gallery/project-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>03</small>Project vocabulary</span></button>
+          <button type="button" id="gallery-tab-audio" role="tab" aria-controls="gallery-slide-audio" aria-selected="false" tabindex="-1" data-gallery-tab><img src="./landing/gallery/audio-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>04</small>Microphone & sound</span></button>
+          <button type="button" id="gallery-tab-workflow" role="tab" aria-controls="gallery-slide-workflow" aria-selected="false" tabindex="-1" data-gallery-tab><img src="./landing/gallery/workflow-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>05</small>Dictation & delivery</span></button>
+          <button type="button" id="gallery-tab-light" role="tab" aria-controls="gallery-slide-light" aria-selected="false" tabindex="-1" data-gallery-tab><img src="./landing/gallery/light-en.png" alt="" width="168" height="120" loading="lazy" /><span><small>06</small>Make it yours</span></button>
+        </div>
+        <p class="gallery-note">Real interface, demonstration data. Preview text is refined after recording ends.</p>
+        <noscript><p>All screenshots: <a href="./landing/gallery/live-en.png">Live dictation</a> · <a href="./landing/gallery/dictionary-en.png">Personal dictionary</a> · <a href="./landing/gallery/project-en.png">Project vocabulary</a> · <a href="./landing/gallery/audio-en.png">Microphone & sound</a> · <a href="./landing/gallery/workflow-en.png">Dictation & delivery</a> · <a href="./landing/gallery/light-en.png">Make it yours</a></p></noscript>
       </section>
       <section class="workflow" id="how">
         <div class="shell workflow-grid">
@@ -414,10 +429,10 @@
             </p>
             <a
               class="button button-primary"
-              href="https://github.com/mr-lexus/hot-yap/releases"
+              href="https://github.com/mr-lexus/hot-yap/releases/tag/v0.1.0-alpha.17"
               >Choose a download ↗</a
             >
-            <p class="download-note">Early alpha · Unsigned installers</p>
+            <p class="download-note">Alpha.17 · Windows, macOS, Linux · Unsigned installers</p>
           </div>
           <div class="platforms">
             <div>

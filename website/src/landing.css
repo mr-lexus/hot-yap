@@ -1687,3 +1687,54 @@ body::after {
   .button:hover,
   .nav-download:hover { box-shadow: none; }
 }
+
+/* Screenshot gallery: no autoplay, keyboard navigation, native lightbox. */
+.gallery-section { padding-block:100px; }
+.gallery-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; margin-bottom:32px; }
+.gallery-heading h2 { font-size:clamp(36px,4.4vw,64px); line-height:1.08; letter-spacing:-.06em; font-weight:600; margin-top:16px; }
+.gallery-heading h2 em { color:var(--accent); font-style:normal; }
+.gallery-intro { color:var(--muted); max-width:600px; margin-top:20px; font-size:15px; }
+.gallery-navigation { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.gallery-navigation > span { font:12px var(--mono); color:var(--muted); margin-right:16px; }
+.gallery-navigation button { width:44px; height:44px; border:1px solid var(--line); border-radius:50%; background:transparent; color:var(--paper); font-size:21px; cursor:pointer; }
+.gallery-navigation button:hover { background:var(--paper); color:#121214; }
+.gallery-slide { border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#19191b; }
+.gallery-slide[hidden] { display:none; }
+.gallery-image { position:relative; display:flex; justify-content:center; padding:24px; background:radial-gradient(ellipse at 50% 0%,#31302c,transparent 75%),#161617; }
+.gallery-image > img { width:auto; max-width:100%; max-height:560px; height:auto; aspect-ratio:7/5; object-fit:contain; border-radius:9px; box-shadow:0 12px 45px #0007; }
+.gallery-expand { position:absolute; right:38px; bottom:38px; padding:9px 14px; border:1px solid #ffffff26; border-radius:99px; background:#111e; color:var(--paper); font-size:11px; backdrop-filter:blur(12px); }
+.gallery-slide figcaption { text-align:left; font-family:"Manrope",Arial,sans-serif; color:var(--paper); margin:0; display:flex; gap:24px; padding:28px 32px; border-top:1px solid var(--line); }
+.gallery-index { color:var(--accent); font:30px var(--mono); line-height:1.2; }
+.gallery-variant { font:10px var(--mono); text-transform:uppercase; letter-spacing:.12em; color:var(--muted); margin-bottom:7px; }
+.gallery-slide h3 { font-size:22px; line-height:1.3; letter-spacing:-.03em; font-weight:600; }
+.gallery-slide figcaption div > p:last-child { margin-top:10px; max-width:880px; color:var(--muted); font-size:13px; }
+.gallery-tabs { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin-top:16px; padding:4px; }
+.gallery-tabs button { min-width:0; padding:7px; border:1px solid var(--line); border-radius:10px; color:var(--muted); background:transparent; text-align:left; cursor:pointer; transition:border-color 160ms,background 160ms; }
+.gallery-tabs button[aria-selected="true"] { border-color:var(--accent); background:#ff795112; color:var(--paper); }
+.gallery-tabs button:hover { border-color:var(--paper); }
+.gallery-tabs button img { width:100%; aspect-ratio:7/5; object-fit:cover; border-radius:5px; opacity:.65; }
+.gallery-tabs button[aria-selected="true"] img, .gallery-tabs button:hover img { opacity:1; }
+.gallery-tabs button > span { display:flex; gap:8px; align-items:baseline; padding:10px 2px 4px; font-size:11px; font-weight:600; line-height:1.4; }
+.gallery-tabs small { font:9px var(--mono); color:var(--accent); }
+.gallery-note { font-size:11px; color:var(--muted); margin-top:16px; }
+@media (max-width:900px) {
+ .gallery-heading { align-items:flex-start; flex-direction:column; gap:22px; }
+ .gallery-image { padding:16px; }
+ .gallery-slide figcaption { padding:22px; gap:18px; }
+ .gallery-tabs { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+ .gallery-tabs button { flex:0 0 155px; scroll-snap-align:start; }
+}
+@media (max-width:600px) {
+ .gallery-section { padding-block:64px; }
+ .gallery-heading h2 { font-size:38px; }
+ .gallery-intro { font-size:13px; }
+ .gallery-image { padding:8px; }
+ .gallery-image > img { border-radius:5px; }
+ .gallery-expand { right:16px; bottom:16px; font-size:10px; padding:6px 10px; }
+ .gallery-slide figcaption { padding:20px 16px; gap:12px; }
+ .gallery-index { font-size:21px; }
+ .gallery-slide h3 { font-size:19px; }
+ .gallery-slide figcaption div > p:last-child { font-size:12px; }
+ .gallery-tabs button { flex-basis:132px; }
+}
+@media (prefers-reduced-motion:reduce) { .gallery-tabs button { transition:none; } }

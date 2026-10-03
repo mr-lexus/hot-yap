@@ -23,6 +23,25 @@ hold Ctrl+Shift+Space → RECORD → release → TRANSCRIBE LOCALLY → COPY TO 
 - The file transcriber accepts common audio and video containers by picker or drag-and-drop, extracts audio locally, and runs the same local or cloud pipeline as live dictation. Long recordings are split into bounded chunks and can be cancelled; the editable result can be copied or saved as UTF-8 text.
 - Russian speech + embedded English terms (e.g. `useEffect`, `git rebase`, `TypeScript`, `Docker`) are transcribed as-is and copied as UTF-8 text.
 
+## Interface gallery
+
+Real application screens with demonstration data. Explore all six scenarios on the [interactive gallery](https://mr-lexus.github.io/hot-yap/#gallery) ([Русский](https://mr-lexus.github.io/hot-yap/ru/#gallery)). Click any image to expand.
+
+| Live dictation | Personal dictionary |
+|---|---|
+| [![Live dictation](public/landing/gallery/live-en.png)](public/landing/gallery/live-en.png) | [![Personal dictionary](public/landing/gallery/dictionary-en.png)](public/landing/gallery/dictionary-en.png) |
+| Provisional local transcription while you speak. | Manual replacements, suggestions, and optional learning. |
+
+| Project vocabulary | Microphone and sound |
+|---|---|
+| [![Project dictionary](public/landing/gallery/project-en.png)](public/landing/gallery/project-en.png) | [![Microphone settings](public/landing/gallery/audio-en.png)](public/landing/gallery/audio-en.png) |
+| Review project terms before adding them. | Select and test your microphone; control output sound. |
+
+| Dictation and delivery | Light appearance |
+|---|---|
+| [![Dictation settings](public/landing/gallery/workflow-en.png)](public/landing/gallery/workflow-en.png) | [![Light theme](public/landing/gallery/light-en.png)](public/landing/gallery/light-en.png) |
+| Preview, finalization, and optional automatic paste. | Two themes and six accent colors. |
+
 ## Architecture
 
 ```

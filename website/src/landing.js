@@ -164,9 +164,15 @@ lightbox?.addEventListener("click", (event) => {
   if (event.target === lightbox) closeLightbox();
 });
 lightbox?.addEventListener("close", () => {
+  if (lightbox.open) return;
   document.body.classList.remove("lightbox-open");
   lightboxImage?.removeAttribute("src");
-  activeLightboxTrigger?.focus();
+  // Native dialogs normally restore focus themselves. A queued close event
+  // must not steal it back after the visitor has already moved to another tab.
+  const focused = document.activeElement;
+  if (!focused || focused === document.body || lightbox.contains(focused)) {
+    activeLightboxTrigger?.focus();
+  }
   activeLightboxTrigger = null;
 });
 
@@ -303,3 +309,42 @@ if ("IntersectionObserver" in window) {
     )
     .forEach((element) => entranceObserver.observe(element));
 }
+
+
+// Explicit selection keeps screenshots still while visitors read the interface.
+document.querySelectorAll("[data-gallery]").forEach((gallery) => {
+  /** @type {HTMLButtonElement[]} */
+  const tabs = Array.from(gallery.querySelectorAll("[data-gallery-tab]"));
+  /** @type {HTMLElement[]} */
+  const slides = Array.from(gallery.querySelectorAll(".gallery-slide"));
+  const counter = gallery.querySelector("[data-gallery-counter]");
+  let selected = 0;
+  /** @param {number} index @param {boolean} [focus] */
+  const select = (index, focus = false) => {
+    selected = (index + tabs.length) % tabs.length;
+    tabs.forEach((tab, i) => {
+      tab.setAttribute("aria-selected", String(i === selected));
+      tab.tabIndex = i === selected ? 0 : -1;
+      slides[i].hidden = i !== selected;
+    });
+    if (counter) counter.textContent = `${String(selected + 1).padStart(2, "0")} / ${String(tabs.length).padStart(2, "0")}`;
+    if (focus) tabs[selected].focus({ preventScroll: true });
+    // Scroll only the thumbnail strip, without moving the page vertically.
+    const strip = tabs[selected].parentElement;
+    if (strip && strip.scrollWidth > strip.clientWidth) {
+      const tab = tabs[selected];
+      strip.scrollLeft = tab.offsetLeft - strip.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+    }
+  };
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => select(index));
+    tab.addEventListener("keydown", (event) => {
+      const next = event.key === "ArrowRight" ? index + 1 : event.key === "ArrowLeft" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+      if (next === null) return;
+      event.preventDefault();
+      select(next, true);
+    });
+  });
+  gallery.querySelector("[data-gallery-prev]")?.addEventListener("click", () => select(selected - 1));
+  gallery.querySelector("[data-gallery-next]")?.addEventListener("click", () => select(selected + 1));
+});
